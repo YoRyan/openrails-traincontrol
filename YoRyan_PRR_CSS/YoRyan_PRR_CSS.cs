@@ -42,25 +42,28 @@ namespace ORTS.Scripting.Script
             InApproach,
             Restricting
         }
-        private StopZone stopZoneState;
-        private StopZone StopZoneState
+        private StopZone stopZone;
+
+        private PulseCode displayCode;
+        private PulseCode DisplayCode
         {
             get
             {
-                return stopZoneState;
+                return displayCode;
             }
             set
             {
-                if (stopZoneState == StopZone.InApproach && value == StopZone.Restricting)
-                    Message(ConfirmLevel.None, "Cab Signal: " + PulseCodeMapping.ToMessageString(PulseCode.Restricting));
-
-                stopZoneState = value;
+                if (displayCode != value)
+                {
+                    Message(ConfirmLevel.None, "Cab Signal: " + PulseCodeMapping.ToMessageString(value));
+                    displayCode = value;
+                }
             }
         }
 
         public override void Initialize()
         {
-            stopZoneState = StopZone.NotApplicable;
+            stopZone = StopZone.NotApplicable;
             blockTracker = new BlockTracker(this, HandleBlockChange);
             currentCode = new CurrentCode(this, PulseCode.Restricting); // TODO - spawn with Clear at speed?
             changeZone = new CodeChangeZone(this);
@@ -94,16 +97,15 @@ namespace ORTS.Scripting.Script
 
             PulseCode code = currentCode.GetCurrent();
             if (code == PulseCode.Approach && changeZone.Inside())
-                StopZoneState = StopZone.Restricting;
-            else if (code == PulseCode.Approach && StopZoneState != StopZone.Restricting)
-                StopZoneState = StopZone.InApproach;
+                stopZone = StopZone.Restricting;
+            else if (code == PulseCode.Approach && stopZone != StopZone.Restricting)
+                stopZone = StopZone.InApproach;
             else
-                StopZoneState = StopZone.NotApplicable;
+                stopZone = StopZone.NotApplicable;
 
-            PulseCode displayCode;
-            if (code == PulseCode.Restricting || StopZoneState == StopZone.Restricting)
+            if (code == PulseCode.Restricting || stopZone == StopZone.Restricting)
             {
-                displayCode = PulseCode.Restricting;
+                DisplayCode = PulseCode.Restricting;
             }
             else
             {
@@ -117,9 +119,9 @@ namespace ORTS.Scripting.Script
                     nextAspect = Aspect.None;
                 }
                 var nextCode = PulseCodeMapping.ToPulseCode(nextAspect);
-                displayCode = nextCode > code ? nextCode : code;
+                DisplayCode = nextCode > code ? nextCode : code;
             }
-            SetNextSignalAspect(PulseCodeMapping.ToCabDisplay(displayCode));
+            SetNextSignalAspect(PulseCodeMapping.ToCabDisplay(DisplayCode));
         }
     }
 }
