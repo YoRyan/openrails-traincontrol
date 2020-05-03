@@ -1,0 +1,335 @@
+﻿/*
+ * PRR Cab Signalling System for Open Rails
+ *
+ * MIT License
+ *
+ * Copyright (c) 2020 Ryan Young <ryan@youngryan.com>
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
+using System;
+using Orts.Simulation;
+using ORTS.Scripting.Api;
+
+namespace ORTS.Scripting.Script
+{
+    class YoRyan_PRR_CSS : TrainControlSystem
+    {
+        private BlockTracker blockTracker;
+        private CurrentCode currentCode;
+        private CodeChangeZone changeZone;
+
+        private enum StopZone
+        {
+            NotApplicable,
+            InApproach,
+            Restricting
+        }
+        private StopZone stopZoneState;
+        private StopZone StopZoneState
+        {
+            get
+            {
+                return stopZoneState;
+            }
+            set
+            {
+                if (stopZoneState == StopZone.InApproach && value == StopZone.Restricting)
+                    Message(ConfirmLevel.None, "Cab Signal: " + PulseCodeMapping.ToMessageString(PulseCode.Restricting));
+
+                stopZoneState = value;
+            }
+        }
+
+        public override void Initialize()
+        {
+            stopZoneState = StopZone.NotApplicable;
+            blockTracker = new BlockTracker(this, HandleBlockChange);
+            currentCode = new CurrentCode(this, PulseCode.Restricting); // TODO - spawn with Clear at speed?
+            changeZone = new CodeChangeZone(this);
+
+            Console.WriteLine("CSS initialized!");
+        }
+
+        public override void HandleEvent(TCSEvent evt, string message)
+        {
+        }
+
+        private void HandleBlockChange()
+        {
+            currentCode.HandleBlockChange();
+            changeZone.HandleBlockChange();
+
+            Message(ConfirmLevel.None, "Cab Signal: " + PulseCodeMapping.ToMessageString(currentCode.GetCurrent()));
+        }
+
+        public override void SetEmergency(bool emergency)
+        {
+            // TODO
+        }
+
+        public override void Update()
+        {
+            if (!IsTrainControlEnabled())
+                return;
+
+            blockTracker.Update();
+
+            PulseCode code = currentCode.GetCurrent();
+            if (code == PulseCode.Approach && changeZone.Inside())
+                StopZoneState = StopZone.Restricting;
+            else if (code == PulseCode.Approach && StopZoneState != StopZone.Restricting)
+                StopZoneState = StopZone.InApproach;
+            else
+                StopZoneState = StopZone.NotApplicable;
+
+            PulseCode displayCode;
+            if (code == PulseCode.Restricting || StopZoneState == StopZone.Restricting)
+            {
+                displayCode = PulseCode.Restricting;
+            }
+            else
+            {
+                Aspect nextAspect;
+                try
+                {
+                    nextAspect = NextSignalAspect(0);
+                }
+                catch (NullReferenceException)
+                {
+                    nextAspect = Aspect.None;
+                }
+                var nextCode = PulseCodeMapping.ToPulseCode(nextAspect);
+                displayCode = nextCode > code ? nextCode : code;
+            }
+            SetNextSignalAspect(PulseCodeMapping.ToCabDisplay(displayCode));
+        }
+    }
+}
+
+internal class BlockTracker
+{
+    private readonly TrainControlSystem tcs;
+    private readonly Action nextBlock;
+
+    private enum SignalPosition
+    {
+        Far,
+        Near
+    }
+    private SignalPosition signal = SignalPosition.Far;
+    private SignalPosition Signal
+    {
+        get
+        {
+            return signal;
+        }
+        set
+        {
+            if (signal == SignalPosition.Far && value == SignalPosition.Near)
+                nextBlock();
+
+            signal = value;
+        }
+    }
+
+    public BlockTracker(TrainControlSystem parent, Action callback)
+    {
+        tcs = parent;
+        nextBlock = callback;
+    }
+
+    public void Update()
+    {
+        float distanceM;
+        try
+        {
+            distanceM = tcs.NextSignalDistanceM(0);
+        }
+        catch (NullReferenceException)
+        {
+            Signal = SignalPosition.Far;
+            return;
+        }
+        Signal = distanceM < 3f ? SignalPosition.Near : SignalPosition.Far;
+    }
+}
+
+/*
+ *                                signal  o
+ *                                        |
+ * +--------------------------------------+
+ *     signal block
+ *                     +------------------+
+ *                       code change zone
+ */
+internal class CodeChangeZone
+{
+    private readonly TrainControlSystem tcs;
+    private float blockLengthM = 0f;
+
+    public CodeChangeZone(TrainControlSystem parent)
+    {
+        tcs = parent;
+    }
+
+    public bool Inside()
+    {
+        float nextDistanceM;
+        try
+        {
+            nextDistanceM = tcs.NextSignalDistanceM(0);
+        }
+        catch (NullReferenceException)
+        {
+            return false;
+        }
+        const float ft2m = 0.3048f;
+        return nextDistanceM < Math.Max(blockLengthM / 2, 1500 * ft2m);
+    }
+
+    public void Update()
+    {
+        float distanceM;
+        try
+        {
+            distanceM = tcs.NextSignalDistanceM(0);
+        }
+        catch (NullReferenceException)
+        {
+            return;
+        }
+    }
+
+    public void HandleBlockChange()
+    {
+        float lengthM = tcs.NextSignalDistanceM(0);
+        blockLengthM = lengthM;
+    }
+}
+
+// Order matters. Later codes are upgrades (>) over earlier ones.
+internal enum PulseCode
+{
+    Restricting,
+    Approach,
+    ApproachMedium,
+    Clear
+}
+
+internal static class PulseCodeMapping
+{
+    public static PulseCode ToPulseCode(Aspect aspect)
+    {
+        switch (aspect)
+        {
+            case Aspect.Clear_2:
+            case Aspect.Clear_1:
+                return PulseCode.Clear;
+            case Aspect.Approach_3:
+            case Aspect.Approach_2:
+                return PulseCode.ApproachMedium;
+            case Aspect.Approach_1:
+                return PulseCode.Approach;
+            case Aspect.Restricted:
+            case Aspect.StopAndProceed:
+            case Aspect.Stop:
+            case Aspect.Permission:
+            default:
+                return PulseCode.Restricting;
+        }
+    }
+
+    public static float ToSpeedMpS(PulseCode code)
+    {
+        const float mph2mps = 0.44704f;
+        switch (code)
+        {
+            case PulseCode.Clear:
+                return 0f; // no restriction
+            case PulseCode.ApproachMedium:
+                return 45 * mph2mps;
+            case PulseCode.Approach:
+                return 30 * mph2mps;
+            case PulseCode.Restricting:
+                return 20 * mph2mps;
+            default:
+                return 0f;
+        }
+    }
+
+    public static string ToMessageString(PulseCode code)
+    {
+        switch (code)
+        {
+            case PulseCode.Clear:
+                return "Clear";
+            case PulseCode.ApproachMedium:
+                return "Approach Medium - 45 mph";
+            case PulseCode.Approach:
+                return "Approach - 30 mph";
+            case PulseCode.Restricting:
+                return "Restricting - 20 mph";
+            default:
+                return null;
+        }
+    }
+
+    public static Aspect ToCabDisplay(PulseCode code)
+    {
+        switch (code)
+        {
+            case PulseCode.Clear:
+                return Aspect.Clear_2;
+            case PulseCode.ApproachMedium:
+                return Aspect.Approach_3;
+            case PulseCode.Approach:
+                return Aspect.Approach_1;
+            case PulseCode.Restricting:
+                return Aspect.Stop;
+            default:
+                return Aspect.None;
+        }
+    }
+}
+
+internal class CurrentCode
+{
+    private readonly TrainControlSystem tcs;
+    private PulseCode code;
+
+    public CurrentCode(TrainControlSystem parent, PulseCode initCode)
+    {
+        tcs = parent;
+        code = initCode;
+    }
+
+    public PulseCode GetCurrent()
+    {
+        return code;
+    }
+
+    public void HandleBlockChange()
+    {
+        PulseCode newCode = PulseCodeMapping.ToPulseCode(tcs.NextSignalAspect(0));
+        Console.WriteLine("CSS: {0} -> {1}", code, newCode);
+        code = newCode;
+    }
+}
