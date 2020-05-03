@@ -32,6 +32,8 @@ namespace ORTS.Scripting.Script
 {
     class YoRyan_PRR_CSS : TrainControlSystem
     {
+        public const float CountdownSec = 6f;
+
         private BlockTracker blockTracker;
         private CurrentCode currentCode;
         private CodeChangeZone changeZone;
@@ -53,11 +55,45 @@ namespace ORTS.Scripting.Script
             }
             set
             {
-                if (displayCode != value)
+                if (displayCode == value)
+                    return;
+
+                Message(ConfirmLevel.None, "Cab Signal: " + PulseCodeMapping.ToMessageString(value));
+                if (value < displayCode)
+                    Alarm = AlarmState.Countdown;
+                displayCode = value;
+            }
+        }
+
+        private enum AlarmState
+        {
+            Off,
+            Countdown
+        }
+        private AlarmState alarm;
+        private Timer alarmTimer;
+        private AlarmState Alarm
+        {
+            get
+            {
+                return alarm;
+            }
+            set
+            {
+                if (alarm == AlarmState.Off && value == AlarmState.Countdown)
                 {
-                    Message(ConfirmLevel.None, "Cab Signal: " + PulseCodeMapping.ToMessageString(value));
-                    displayCode = value;
+                    alarmTimer.Setup(CountdownSec);
+                    alarmTimer.Start();
+                    SetVigilanceAlarm(true);
+                    SetVigilanceAlarmDisplay(true);
                 }
+                else if (alarm == AlarmState.Countdown && value == AlarmState.Off)
+                {
+                    SetVigilanceAlarm(false);
+                    SetVigilanceAlarmDisplay(false);
+                }
+
+                alarm = value;
             }
         }
 
@@ -68,11 +104,17 @@ namespace ORTS.Scripting.Script
             currentCode = new CurrentCode(this, PulseCode.Restricting); // TODO - spawn with Clear at speed?
             changeZone = new CodeChangeZone(this);
 
+            alarm = AlarmState.Off;
+            alarmTimer = new Timer(this);
+
             Console.WriteLine("CSS initialized!");
         }
 
         public override void HandleEvent(TCSEvent evt, string message)
         {
+            if (evt == TCSEvent.AlerterPressed)
+                if (Alarm == AlarmState.Countdown)
+                    Alarm = AlarmState.Off;
         }
 
         private void HandleBlockChange()
@@ -84,8 +126,6 @@ namespace ORTS.Scripting.Script
             PulseCode code = currentCode.GetCurrent();
             if (code == PulseCode.Approach)
                 stopZone = StopZone.InApproach;
-
-            Message(ConfirmLevel.None, "Cab Signal: " + PulseCodeMapping.ToMessageString(code));
         }
 
         public override void SetEmergency(bool emergency)
@@ -128,6 +168,10 @@ namespace ORTS.Scripting.Script
                 DisplayCode = nextCode > code ? nextCode : code;
             }
             SetNextSignalAspect(PulseCodeMapping.ToCabDisplay(DisplayCode));
+
+            // TODO
+            if (Alarm == AlarmState.Countdown && alarmTimer.Triggered)
+                Alarm = AlarmState.Off;
         }
     }
 }
