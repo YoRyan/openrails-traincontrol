@@ -80,7 +80,12 @@ namespace ORTS.Scripting.Script
             currentCode.HandleBlockChange();
             changeZone.HandleBlockChange();
 
-            Message(ConfirmLevel.None, "Cab Signal: " + PulseCodeMapping.ToMessageString(currentCode.GetCurrent()));
+            // If passing another Approach signal, allow the displayed aspect to move back to Approach.
+            PulseCode code = currentCode.GetCurrent();
+            if (code == PulseCode.Approach)
+                stopZone = StopZone.InApproach;
+
+            Message(ConfirmLevel.None, "Cab Signal: " + PulseCodeMapping.ToMessageString(code));
         }
 
         public override void SetEmergency(bool emergency)
@@ -98,6 +103,7 @@ namespace ORTS.Scripting.Script
             PulseCode code = currentCode.GetCurrent();
             if (code == PulseCode.Approach && changeZone.Inside())
                 stopZone = StopZone.Restricting;
+            // Once in Restricting, the displayed aspect should stay in Restricting.
             else if (code == PulseCode.Approach && stopZone != StopZone.Restricting)
                 stopZone = StopZone.InApproach;
             else
