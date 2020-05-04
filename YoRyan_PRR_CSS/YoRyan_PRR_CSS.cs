@@ -84,13 +84,11 @@ namespace ORTS.Scripting.Script
                 {
                     alarmTimer.Setup(CountdownSec);
                     alarmTimer.Start();
-                    SetVigilanceAlarm(true);
-                    SetVigilanceAlarmDisplay(true);
+                    TriggerSoundAlert1();
                 }
                 else if (alarm == AlarmState.Countdown && value == AlarmState.Off)
                 {
-                    SetVigilanceAlarm(false);
-                    SetVigilanceAlarmDisplay(false);
+                    TriggerSoundAlert2();
                 }
 
                 alarm = value;
