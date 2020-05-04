@@ -138,8 +138,19 @@ namespace ORTS.Scripting.Script
 
             blockTracker.Update();
 
+            Aspect nextAspect;
+            try
+            {
+                nextAspect = NextSignalAspect(0);
+            }
+            catch (NullReferenceException)
+            {
+                nextAspect = Aspect.None;
+            }
             PulseCode code = currentCode.GetCurrent();
-            if (code == PulseCode.Approach && changeZone.Inside())
+            var nextCode = PulseCodeMapping.ToPulseCode(nextAspect);
+
+            if (code == PulseCode.Approach && nextCode == PulseCode.Restricting && changeZone.Inside())
                 stopZone = StopZone.Restricting;
             // Once in Restricting, the displayed aspect should stay in Restricting.
             else if (code == PulseCode.Approach && stopZone != StopZone.Restricting)
@@ -148,23 +159,9 @@ namespace ORTS.Scripting.Script
                 stopZone = StopZone.NotApplicable;
 
             if (code == PulseCode.Restricting || stopZone == StopZone.Restricting)
-            {
                 DisplayCode = PulseCode.Restricting;
-            }
             else
-            {
-                Aspect nextAspect;
-                try
-                {
-                    nextAspect = NextSignalAspect(0);
-                }
-                catch (NullReferenceException)
-                {
-                    nextAspect = Aspect.None;
-                }
-                var nextCode = PulseCodeMapping.ToPulseCode(nextAspect);
                 DisplayCode = nextCode > code ? nextCode : code;
-            }
             SetNextSignalAspect(PulseCodeMapping.ToCabDisplay(DisplayCode));
 
             // TODO
