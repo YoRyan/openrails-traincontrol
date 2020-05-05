@@ -16,10 +16,10 @@ script:
 4. To test the installation, enable logging within Open Rails and check the log
    file after startup. You should see a startup message like "ATS initialized".
 
-Instead of modifying the .eng file, you could also Open Rails' include system to
-overlay the new parameters. To do this, create an `OpenRails` directory in the
-engine folder. Then, create a .eng file with the same filename as the .eng file
-you would otherwise modify, and format it like so:
+Instead of modifying the .eng file, you could also use Open Rails' include
+system to overlay the new parameters. To do this, create an `OpenRails`
+directory in the engine folder. Then, create a .eng file with the same filename
+as the .eng file you would otherwise modify, and format it like so:
 
 ```
 
