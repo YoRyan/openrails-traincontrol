@@ -15,6 +15,11 @@ Engine ( ...
 )
 ```
 
+If you have the
+[Pacific Surfliner](https://www.3dtrains.com/products/ts/trainsets_pacific_surfliner.shtml)
+rolling stock pack from 3DTrains, you can use the included conversion kit to
+outfit all locomotives and cab cars with ATS.
+
 #### Overview
 
 The ATS system consists of trackside inductors placed in advance of signals and
