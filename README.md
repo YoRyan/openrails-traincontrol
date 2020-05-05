@@ -3,6 +3,9 @@ This repository is where I develop Train Control System (TCS) scripts for
 TCS scripts can simulate all sorts of railway safety systems, making the train
 driving experience more realistic, engaging, and enjoyable.
 
+Use the "download ZIP" function to download the latest versions of the scripts.
+There are no releases.
+
 TCS scripts must be installed on each individual locomotive. To install a
 script:
 
