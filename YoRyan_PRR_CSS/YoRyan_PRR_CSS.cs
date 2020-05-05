@@ -164,6 +164,9 @@ namespace ORTS.Scripting.Script
                 DisplayCode = nextCode > code ? nextCode : code;
             SetNextSignalAspect(PulseCodeMapping.ToCabDisplay(DisplayCode));
 
+            float speed = PulseCodeMapping.ToSpeedMpS(DisplayCode);
+            SetNextSpeedLimitMpS(speed != 0 ? speed : CurrentPostSpeedLimitMpS());
+
             // TODO
             if (Alarm == AlarmState.Countdown && alarmTimer.Triggered)
                 Alarm = AlarmState.Off;
