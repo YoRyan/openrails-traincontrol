@@ -160,8 +160,10 @@ namespace ORTS.Scripting.Script
 
             if (code == PulseCode.Restricting || stopZone == StopZone.Restricting)
                 DisplayCode = PulseCode.Restricting;
+            else if (Alarm == AlarmState.Off && nextCode > code)
+                DisplayCode = nextCode;
             else
-                DisplayCode = nextCode > code ? nextCode : code;
+                DisplayCode = code;
             SetNextSignalAspect(PulseCodeMapping.ToCabDisplay(DisplayCode));
 
             float speed = PulseCodeMapping.ToSpeedMpS(DisplayCode);
