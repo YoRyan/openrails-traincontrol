@@ -36,6 +36,8 @@ namespace ORTS.Scripting.Script
         public const float UpgradeSoundSec = 1f;
         public const float SpeedLimitMarginMpS = 1.34112f; // 3 mph
 
+        private bool hasSpeedControl;
+
         private BlockTracker blockTracker;
         private PenaltyBrake penaltyBrake;
         private CurrentCode currentCode;
@@ -192,6 +194,8 @@ namespace ORTS.Scripting.Script
             alarmTimer = new Timer(this);
             upgradeTimer = new Timer(this);
 
+            hasSpeedControl = GetBoolParameter("CSS", "SpeedControl", true);
+
             Console.WriteLine("CSS initialized!");
         }
 
@@ -268,7 +272,7 @@ namespace ORTS.Scripting.Script
             ControllerState brake = Locomotive().TrainBrakeController.TrainBrakeControllerState;
             bool suppressing = brake == ControllerState.Suppression || brake == ControllerState.ContServ || brake == ControllerState.FullServ;
             bool overspeed = speed != 0 && SpeedMpS() > speed + SpeedLimitMarginMpS;
-            if (Alarm == AlarmState.Off && overspeed)
+            if (Alarm == AlarmState.Off && overspeed && hasSpeedControl)
             {
                 Alarm = AlarmState.Overspeed;
             }
