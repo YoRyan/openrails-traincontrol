@@ -63,3 +63,6 @@ SpeedReductionDistMi=2
 
 * v1.0 - May 2, 2020
   * Initial release
+
+* v1.0a - May 6, 2020
+  * Set the emergency brake when asked by Open Rails to do so

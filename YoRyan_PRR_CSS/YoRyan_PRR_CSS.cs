@@ -243,7 +243,7 @@ namespace ORTS.Scripting.Script
 
         public override void SetEmergency(bool emergency)
         {
-            // TODO
+            SetEmergencyBrake(emergency);
         }
 
         public override void Update()

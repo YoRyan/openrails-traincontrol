@@ -174,7 +174,10 @@ namespace ORTS.Scripting.Script
                     Alarm = AlarmState.Off;
         }
 
-        public override void SetEmergency(bool emergency) { }
+        public override void SetEmergency(bool emergency)
+        {
+            SetEmergencyBrake(emergency);
+        }
 
         public override void Update()
         {
