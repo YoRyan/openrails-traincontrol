@@ -33,6 +33,7 @@ namespace ORTS.Scripting.Script
     class YoRyan_PRR_CSS : TrainControlSystem
     {
         public const float CountdownSec = 6f;
+        public const float UpgradeSoundSec = 1f;
 
         private BlockTracker blockTracker;
         private CurrentCode currentCode;
@@ -61,6 +62,8 @@ namespace ORTS.Scripting.Script
                 Message(ConfirmLevel.None, "Cab Signal: " + PulseCodeMapping.ToMessageString(value));
                 if (value < displayCode)
                     Alarm = AlarmState.Countdown;
+                else
+                    Upgrade = UpgradeState.Play;
                 displayCode = value;
             }
         }
@@ -84,14 +87,44 @@ namespace ORTS.Scripting.Script
                 {
                     alarmTimer.Setup(CountdownSec);
                     alarmTimer.Start();
-                    TriggerSoundAlert1();
+                    TriggerSoundWarning1();
                 }
                 else if (alarm == AlarmState.Countdown && value == AlarmState.Off)
+                {
+                    TriggerSoundWarning2();
+                }
+
+                alarm = value;
+            }
+        }
+
+        private enum UpgradeState
+        {
+            Off,
+            Play
+        }
+        private UpgradeState upgrade;
+        private Timer upgradeTimer;
+        private UpgradeState Upgrade
+        {
+            get
+            {
+                return upgrade;
+            }
+            set
+            {
+                if (upgrade == UpgradeState.Off && value == UpgradeState.Play)
+                {
+                    upgradeTimer.Setup(UpgradeSoundSec);
+                    upgradeTimer.Start();
+                    TriggerSoundAlert1();
+                }
+                else if (upgrade == UpgradeState.Play && value == UpgradeState.Off)
                 {
                     TriggerSoundAlert2();
                 }
 
-                alarm = value;
+                upgrade = value;
             }
         }
 
@@ -104,6 +137,7 @@ namespace ORTS.Scripting.Script
 
             alarm = AlarmState.Off;
             alarmTimer = new Timer(this);
+            upgradeTimer = new Timer(this);
 
             Console.WriteLine("CSS initialized!");
         }
@@ -172,6 +206,8 @@ namespace ORTS.Scripting.Script
             // TODO
             if (Alarm == AlarmState.Countdown && alarmTimer.Triggered)
                 Alarm = AlarmState.Off;
+            if (Upgrade == UpgradeState.Play && upgradeTimer.Triggered)
+                Upgrade = UpgradeState.Off;
         }
     }
 }
