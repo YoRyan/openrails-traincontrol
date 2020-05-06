@@ -34,8 +34,10 @@ namespace ORTS.Scripting.Script
     {
         public const float CountdownSec = 6f;
         public const float UpgradeSoundSec = 1f;
+        public const float SpeedLimitMarginMpS = 1.34112f; // 3 mph
 
         private BlockTracker blockTracker;
+        private PenaltyBrake penaltyBrake;
         private CurrentCode currentCode;
         private CodeChangeZone changeZone;
 
@@ -61,9 +63,14 @@ namespace ORTS.Scripting.Script
 
                 Message(ConfirmLevel.None, "Cab Signal: " + PulseCodeMapping.ToMessageString(value));
                 if (value < displayCode)
-                    Alarm = AlarmState.Countdown;
+                {
+                    if (Alarm == AlarmState.Off)
+                        Alarm = AlarmState.Countdown;
+                }
                 else
+                {
                     Upgrade = UpgradeState.Play;
+                }
                 displayCode = value;
             }
         }
@@ -71,7 +78,10 @@ namespace ORTS.Scripting.Script
         private enum AlarmState
         {
             Off,
-            Countdown
+            Countdown,
+            Overspeed,
+            OverspeedSuppress,
+            Stop
         }
         private AlarmState alarm;
         private Timer alarmTimer;
@@ -83,18 +93,60 @@ namespace ORTS.Scripting.Script
             }
             set
             {
-                if (alarm == AlarmState.Off && value == AlarmState.Countdown)
+                if (alarm == AlarmState.Off)
                 {
-                    alarmTimer.Setup(CountdownSec);
-                    alarmTimer.Start();
-                    TriggerSoundWarning1();
+                    if (value == AlarmState.Countdown)
+                    {
+                        alarmTimer.Setup(CountdownSec);
+                        alarmTimer.Start();
+                        TriggerSoundWarning1();
+                    }
+                    else if (value == AlarmState.Overspeed)
+                    {
+                        alarmTimer.Setup(CountdownSec);
+                        alarmTimer.Start();
+                    }
                 }
-                else if (alarm == AlarmState.Countdown && value == AlarmState.Off)
+                else if (alarm == AlarmState.Countdown)
                 {
-                    TriggerSoundWarning2();
+                    if (value == AlarmState.Off || value == AlarmState.OverspeedSuppress)
+                    {
+                        TriggerSoundWarning2();
+                    }
+                    else if (value == AlarmState.Overspeed)
+                    {
+                        TriggerSoundWarning2();
+                        alarmTimer.Setup(CountdownSec);
+                        alarmTimer.Start();
+                    }
+                    else if (value == AlarmState.Stop)
+                    {
+                        TriggerSoundWarning2();
+                        penaltyBrake.Set();
+                    }
+                }
+                else if (alarm == AlarmState.Overspeed && value == AlarmState.Stop)
+                {
+                    penaltyBrake.Set();
+                }
+                else if (alarm == AlarmState.OverspeedSuppress)
+                {
+                    if (value == AlarmState.Overspeed)
+                    {
+                        alarmTimer.Setup(CountdownSec);
+                        alarmTimer.Start();
+                    }
+                    else if (value == AlarmState.Stop)
+                    {
+                        penaltyBrake.Set();
+                    }
                 }
 
-                alarm = value;
+                if (alarm != value)
+                {
+                    Console.WriteLine(string.Format("CSS Alarm: {0} -> {1}", alarm, value));
+                    alarm = value;
+                }
             }
         }
 
@@ -132,6 +184,7 @@ namespace ORTS.Scripting.Script
         {
             stopZone = StopZone.NotApplicable;
             blockTracker = new BlockTracker(this, HandleBlockChange);
+            penaltyBrake = new PenaltyBrake(this);
             currentCode = new CurrentCode(this, PulseCode.Restricting); // TODO - spawn with Clear at speed?
             changeZone = new CodeChangeZone(this);
 
@@ -145,8 +198,17 @@ namespace ORTS.Scripting.Script
         public override void HandleEvent(TCSEvent evt, string message)
         {
             if (evt == TCSEvent.AlerterPressed)
+            {
                 if (Alarm == AlarmState.Countdown)
+                {
                     Alarm = AlarmState.Off;
+                }
+                else if (Alarm == AlarmState.Stop && SpeedMpS() < 0.1f)
+                {
+                    Alarm = AlarmState.Off;
+                    penaltyBrake.Release();
+                }
+            }
         }
 
         private void HandleBlockChange()
@@ -203,9 +265,34 @@ namespace ORTS.Scripting.Script
             float speed = PulseCodeMapping.ToSpeedMpS(DisplayCode);
             SetNextSpeedLimitMpS(speed != 0 ? speed : CurrentPostSpeedLimitMpS());
 
-            // TODO
-            if (Alarm == AlarmState.Countdown && alarmTimer.Triggered)
-                Alarm = AlarmState.Off;
+            ControllerState brake = Locomotive().TrainBrakeController.TrainBrakeControllerState;
+            bool suppressing = brake == ControllerState.Suppression || brake == ControllerState.ContServ || brake == ControllerState.FullServ;
+            bool overspeed = speed != 0 && SpeedMpS() > speed + SpeedLimitMarginMpS;
+            if (Alarm == AlarmState.Off && overspeed)
+            {
+                Alarm = AlarmState.Overspeed;
+            }
+            else if (Alarm == AlarmState.Countdown && alarmTimer.Triggered)
+            {
+                Alarm = AlarmState.Stop;
+            }
+            else if (Alarm == AlarmState.Overspeed)
+            {
+                if (!overspeed)
+                    Alarm = AlarmState.Off;
+                else if (suppressing)
+                    Alarm = AlarmState.OverspeedSuppress;
+                else if (alarmTimer.Triggered)
+                    Alarm = AlarmState.Stop;
+            }
+            else if (Alarm == AlarmState.OverspeedSuppress)
+            {
+                if (!overspeed)
+                    Alarm = AlarmState.Off;
+                else if (!suppressing)
+                    Alarm = AlarmState.Overspeed;
+            }
+
             if (Upgrade == UpgradeState.Play && upgradeTimer.Triggered)
                 Upgrade = UpgradeState.Off;
         }
@@ -419,5 +506,36 @@ internal class CurrentCode
         PulseCode newCode = PulseCodeMapping.ToPulseCode(tcs.NextSignalAspect(0));
         Console.WriteLine("CSS: {0} -> {1}", code, newCode);
         code = newCode;
+    }
+}
+
+internal class PenaltyBrake
+{
+    private readonly TrainControlSystem tcs;
+    private bool set = false;
+
+    public PenaltyBrake(TrainControlSystem parent)
+    {
+        tcs = parent;
+    }
+
+    public void Set()
+    {
+        if (!set)
+        {
+            tcs.SetFullBrake(true);
+            tcs.SetPenaltyApplicationDisplay(true);
+            set = true;
+        }
+    }
+
+    public void Release()
+    {
+        if (set)
+        {
+            tcs.SetFullBrake(false);
+            tcs.SetPenaltyApplicationDisplay(false);
+            set = false;
+        }
     }
 }
