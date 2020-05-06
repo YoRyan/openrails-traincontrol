@@ -263,7 +263,7 @@ namespace ORTS.Scripting.Script
             SetNextSignalAspect(PulseCodeMapping.ToCabDisplay(DisplayCode));
 
             float speed = PulseCodeMapping.ToSpeedMpS(DisplayCode);
-            SetNextSpeedLimitMpS(speed != 0 ? speed : CurrentPostSpeedLimitMpS());
+            SetNextSpeedLimitMpS(speed);
 
             ControllerState brake = Locomotive().TrainBrakeController.TrainBrakeControllerState;
             bool suppressing = brake == ControllerState.Suppression || brake == ControllerState.ContServ || brake == ControllerState.FullServ;
