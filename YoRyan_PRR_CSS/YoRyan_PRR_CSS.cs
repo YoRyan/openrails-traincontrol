@@ -95,6 +95,15 @@ namespace ORTS.Scripting.Script
             }
             set
             {
+                Action overspeedWarning = () =>
+                {
+                    Message(ConfirmLevel.None, "Cab Signal: Overspeed! Slow your train immediately.");
+                };
+                Action penaltyWarning = () =>
+                {
+                    Message(ConfirmLevel.None, "Cab Signal: Penalty brake application.");
+                };
+
                 if (alarm == AlarmState.Off)
                 {
                     if (value == AlarmState.Countdown)
@@ -107,6 +116,7 @@ namespace ORTS.Scripting.Script
                     {
                         alarmTimer.Setup(CountdownSec);
                         alarmTimer.Start();
+                        overspeedWarning();
                     }
                 }
                 else if (alarm == AlarmState.Countdown)
@@ -120,16 +130,19 @@ namespace ORTS.Scripting.Script
                         TriggerSoundWarning2();
                         alarmTimer.Setup(CountdownSec);
                         alarmTimer.Start();
+                        overspeedWarning();
                     }
                     else if (value == AlarmState.Stop)
                     {
                         TriggerSoundWarning2();
                         penaltyBrake.Set();
+                        penaltyWarning();
                     }
                 }
                 else if (alarm == AlarmState.Overspeed && value == AlarmState.Stop)
                 {
                     penaltyBrake.Set();
+                    penaltyWarning();
                 }
                 else if (alarm == AlarmState.OverspeedSuppress)
                 {
@@ -137,10 +150,12 @@ namespace ORTS.Scripting.Script
                     {
                         alarmTimer.Setup(CountdownSec);
                         alarmTimer.Start();
+                        overspeedWarning();
                     }
                     else if (value == AlarmState.Stop)
                     {
                         penaltyBrake.Set();
+                        penaltyWarning();
                     }
                 }
 
