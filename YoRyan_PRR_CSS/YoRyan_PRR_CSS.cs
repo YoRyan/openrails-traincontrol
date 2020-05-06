@@ -1,5 +1,5 @@
 ﻿/*
- * PRR Cab Signalling System for Open Rails
+ * PRR Cab Signaling System for Open Rails
  *
  * MIT License
  *
