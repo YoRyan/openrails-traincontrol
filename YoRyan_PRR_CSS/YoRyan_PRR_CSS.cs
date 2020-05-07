@@ -220,9 +220,16 @@ namespace ORTS.Scripting.Script
             {
                 if (Alarm == AlarmState.Countdown)
                 {
-                    float speed = PulseCodeMapping.ToSpeedMpS(DisplayCode);
-                    bool overspeed = speed != 0 && SpeedMpS() > speed + SpeedLimitMarginMpS;
-                    Alarm = overspeed ? AlarmState.Overspeed : AlarmState.Off;
+                    if (!IsTrainControlEnabled())
+                    {
+                        Alarm = AlarmState.Off;
+                    }
+                    else
+                    {
+                        float speed = PulseCodeMapping.ToSpeedMpS(DisplayCode);
+                        bool overspeed = speed != 0 && SpeedMpS() > speed + SpeedLimitMarginMpS;
+                        Alarm = overspeed ? AlarmState.Overspeed : AlarmState.Off;
+                    }
                 }
                 else if (Alarm == AlarmState.Stop && SpeedMpS() < 0.1f)
                 {
@@ -250,9 +257,6 @@ namespace ORTS.Scripting.Script
 
         public override void Update()
         {
-            if (!IsTrainControlEnabled())
-                return;
-
             blockTracker.Update();
 
             Aspect nextAspect;
@@ -286,36 +290,44 @@ namespace ORTS.Scripting.Script
             float speed = PulseCodeMapping.ToSpeedMpS(DisplayCode);
             SetNextSpeedLimitMpS(speed);
 
-            ControllerState brake = Locomotive().TrainBrakeController.TrainBrakeControllerState;
-            bool suppressing = brake == ControllerState.Suppression || brake == ControllerState.ContServ || brake == ControllerState.FullServ;
-            bool overspeed = speed != 0 && SpeedMpS() > speed + SpeedLimitMarginMpS;
-            if (Alarm == AlarmState.Off && overspeed && hasSpeedControl)
+            if (!IsTrainControlEnabled())
             {
-                Alarm = AlarmState.Overspeed;
-            }
-            else if (Alarm == AlarmState.Countdown && alarmTimer.Triggered)
-            {
-                Alarm = AlarmState.Stop;
-            }
-            else if (Alarm == AlarmState.Overspeed)
-            {
-                if (!overspeed)
+                if (Alarm == AlarmState.Countdown && alarmTimer.Triggered)
                     Alarm = AlarmState.Off;
-                else if (suppressing)
-                    Alarm = AlarmState.OverspeedSuppress;
-                else if (alarmTimer.Triggered)
-                    Alarm = AlarmState.Stop;
             }
-            else if (Alarm == AlarmState.OverspeedSuppress)
+            else
             {
-                if (!overspeed)
-                    Alarm = AlarmState.Off;
-                else if (!suppressing)
+                ControllerState brake = Locomotive().TrainBrakeController.TrainBrakeControllerState;
+                bool suppressing = brake == ControllerState.Suppression || brake == ControllerState.ContServ || brake == ControllerState.FullServ;
+                bool overspeed = speed != 0 && SpeedMpS() > speed + SpeedLimitMarginMpS;
+                if (Alarm == AlarmState.Off && overspeed && hasSpeedControl)
+                {
                     Alarm = AlarmState.Overspeed;
-            }
+                }
+                else if (Alarm == AlarmState.Countdown && alarmTimer.Triggered)
+                {
+                    Alarm = AlarmState.Stop;
+                }
+                else if (Alarm == AlarmState.Overspeed)
+                {
+                    if (!overspeed)
+                        Alarm = AlarmState.Off;
+                    else if (suppressing)
+                        Alarm = AlarmState.OverspeedSuppress;
+                    else if (alarmTimer.Triggered)
+                        Alarm = AlarmState.Stop;
+                }
+                else if (Alarm == AlarmState.OverspeedSuppress)
+                {
+                    if (!overspeed)
+                        Alarm = AlarmState.Off;
+                    else if (!suppressing)
+                        Alarm = AlarmState.Overspeed;
+                }
 
-            if (Upgrade == UpgradeState.Play && upgradeTimer.Triggered)
-                Upgrade = UpgradeState.Off;
+                if (Upgrade == UpgradeState.Play && upgradeTimer.Triggered)
+                    Upgrade = UpgradeState.Off;
+            }
         }
     }
 }
