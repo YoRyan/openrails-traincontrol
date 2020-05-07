@@ -35,8 +35,10 @@ namespace ORTS.Scripting.Script
         public const float CountdownSec = 6f;
         public const float UpgradeSoundSec = 1f;
         public const float SpeedLimitMarginMpS = 1.34112f; // 3 mph
+        public const float MinCodeChangeBlockLengthM = 1600f; // 1 mi
 
         private bool hasSpeedControl;
+        private float blockLengthM = TCSUtils.NullSignalDistance;
 
         private BlockTracker blockTracker;
         private PenaltyBrake penaltyBrake;
@@ -248,6 +250,8 @@ namespace ORTS.Scripting.Script
             PulseCode code = currentCode.GetCurrent();
             if (code == PulseCode.Approach)
                 stopZone = StopZone.InApproach;
+
+            blockLengthM = TCSUtils.NextSignalDistanceM(this, 0);
         }
 
         public override void SetEmergency(bool emergency)
@@ -258,6 +262,8 @@ namespace ORTS.Scripting.Script
         public override void Update()
         {
             blockTracker.Update();
+            if (blockLengthM == TCSUtils.NullSignalDistance)
+                blockLengthM = TCSUtils.NextSignalDistanceM(this, 0);
 
             PulseCode code = currentCode.GetCurrent();
             var nextCode = PulseCodeMapping.ToPulseCode(TCSUtils.NextSignalAspect(this, 0));
@@ -272,7 +278,7 @@ namespace ORTS.Scripting.Script
 
             if (code == PulseCode.Restricting || stopZone == StopZone.Restricting)
                 DisplayCode = PulseCode.Restricting;
-            else if (Alarm == AlarmState.Off && nextCode > code)
+            else if (Alarm == AlarmState.Off && blockLengthM >= MinCodeChangeBlockLengthM && nextCode > code)
                 DisplayCode = nextCode;
             else
                 DisplayCode = code;
