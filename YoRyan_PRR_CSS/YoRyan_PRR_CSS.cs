@@ -259,17 +259,8 @@ namespace ORTS.Scripting.Script
         {
             blockTracker.Update();
 
-            Aspect nextAspect;
-            try
-            {
-                nextAspect = NextSignalAspect(0);
-            }
-            catch (NullReferenceException)
-            {
-                nextAspect = Aspect.None;
-            }
             PulseCode code = currentCode.GetCurrent();
-            var nextCode = PulseCodeMapping.ToPulseCode(nextAspect);
+            var nextCode = PulseCodeMapping.ToPulseCode(TCSUtils.NextSignalAspect(this, 0));
 
             if (code == PulseCode.Approach && nextCode == PulseCode.Restricting && changeZone.Inside())
                 stopZone = StopZone.Restricting;
@@ -351,7 +342,7 @@ internal class BlockTracker
         }
         set
         {
-            if (signal == SignalPosition.Far && value == SignalPosition.Near)
+            if (signal == SignalPosition.Near && value == SignalPosition.Far)
                 nextBlock();
 
             signal = value;
@@ -366,17 +357,8 @@ internal class BlockTracker
 
     public void Update()
     {
-        float distanceM;
-        try
-        {
-            distanceM = tcs.NextSignalDistanceM(0);
-        }
-        catch (NullReferenceException)
-        {
-            Signal = SignalPosition.Far;
-            return;
-        }
-        Signal = distanceM < 3f ? SignalPosition.Near : SignalPosition.Far;
+        float distanceM = TCSUtils.NextSignalDistanceM(tcs, 0);
+        Signal = distanceM != TCSUtils.NullSignalDistance && distanceM < 3f ? SignalPosition.Near : SignalPosition.Far;
     }
 }
 
@@ -400,36 +382,48 @@ internal class CodeChangeZone
 
     public bool Inside()
     {
-        float nextDistanceM;
-        try
-        {
-            nextDistanceM = tcs.NextSignalDistanceM(0);
-        }
-        catch (NullReferenceException)
-        {
-            return false;
-        }
+        float nextDistanceM = TCSUtils.NextSignalDistanceM(tcs, 0);
         const float ft2m = 0.3048f;
-        return nextDistanceM < Math.Max(blockLengthM / 2, 1500 * ft2m);
-    }
-
-    public void Update()
-    {
-        float distanceM;
-        try
-        {
-            distanceM = tcs.NextSignalDistanceM(0);
-        }
-        catch (NullReferenceException)
-        {
-            return;
-        }
+        return nextDistanceM != TCSUtils.NullSignalDistance && nextDistanceM < Math.Max(blockLengthM / 2, 1500 * ft2m);
     }
 
     public void HandleBlockChange()
     {
-        float lengthM = tcs.NextSignalDistanceM(0);
-        blockLengthM = lengthM;
+        blockLengthM = TCSUtils.NextSignalDistanceM(tcs, 0);
+    }
+}
+
+internal static class TCSUtils
+{
+    public const float NullSignalDistance = -1f;
+    public const Aspect NullSignalAspect = Aspect.None;
+
+    public static float NextSignalDistanceM(TrainControlSystem tcs, int foresight)
+    {
+        float distanceM;
+        try
+        {
+            distanceM = tcs.NextSignalDistanceM(foresight);
+        }
+        catch (NullReferenceException)
+        {
+            return NullSignalDistance;
+        }
+        return distanceM;
+    }
+
+    public static Aspect NextSignalAspect(TrainControlSystem tcs, int foresight)
+    {
+        Aspect aspect;
+        try
+        {
+            aspect = tcs.NextSignalAspect(foresight);
+        }
+        catch (NullReferenceException)
+        {
+            return NullSignalAspect;
+        }
+        return aspect;
     }
 }
 
