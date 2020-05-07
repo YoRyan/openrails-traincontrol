@@ -449,11 +449,11 @@ internal static class PulseCodeMapping
         switch (aspect)
         {
             case Aspect.Clear_2:
-            case Aspect.Clear_1:
                 return PulseCode.Clear;
-            case Aspect.Approach_3:
             case Aspect.Approach_2:
                 return PulseCode.ApproachMedium;
+            case Aspect.Clear_1:
+            case Aspect.Approach_3:
             case Aspect.Approach_1:
                 return PulseCode.Approach;
             case Aspect.Restricted:
