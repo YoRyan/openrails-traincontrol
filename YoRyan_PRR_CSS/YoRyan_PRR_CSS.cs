@@ -220,7 +220,9 @@ namespace ORTS.Scripting.Script
             {
                 if (Alarm == AlarmState.Countdown)
                 {
-                    Alarm = AlarmState.Off;
+                    float speed = PulseCodeMapping.ToSpeedMpS(DisplayCode);
+                    bool overspeed = speed != 0 && SpeedMpS() > speed + SpeedLimitMarginMpS;
+                    Alarm = overspeed ? AlarmState.Overspeed : AlarmState.Off;
                 }
                 else if (Alarm == AlarmState.Stop && SpeedMpS() < 0.1f)
                 {
