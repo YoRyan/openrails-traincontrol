@@ -68,7 +68,7 @@ namespace ORTS.Scripting.Script
                 Message(ConfirmLevel.None, "Cab Signal: " + PulseCodeMapping.ToMessageString(value));
                 if (value < displayCode)
                 {
-                    if (Alarm == AlarmState.Off)
+                    if (Alarm == AlarmState.Off && IsTrainControlEnabled())
                         Alarm = AlarmState.Countdown;
                 }
                 else
@@ -222,16 +222,9 @@ namespace ORTS.Scripting.Script
             {
                 if (Alarm == AlarmState.Countdown)
                 {
-                    if (!IsTrainControlEnabled())
-                    {
-                        Alarm = AlarmState.Off;
-                    }
-                    else
-                    {
-                        float speed = PulseCodeMapping.ToSpeedMpS(DisplayCode);
-                        bool overspeed = speed != 0 && SpeedMpS() > speed + SpeedLimitMarginMpS;
-                        Alarm = overspeed ? AlarmState.Overspeed : AlarmState.Off;
-                    }
+                    float speed = PulseCodeMapping.ToSpeedMpS(DisplayCode);
+                    bool overspeed = speed != 0 && SpeedMpS() > speed + SpeedLimitMarginMpS;
+                    Alarm = overspeed ? AlarmState.Overspeed : AlarmState.Off;
                 }
                 else if (Alarm == AlarmState.Stop && SpeedMpS() < 0.1f)
                 {
