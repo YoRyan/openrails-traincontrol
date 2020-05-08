@@ -251,7 +251,7 @@ namespace ORTS.Scripting.Script
             if (code == PulseCode.Approach)
                 stopZone = StopZone.InApproach;
 
-            blockLengthM = TCSUtils.NextSignalDistanceM(this, 0);
+            blockLengthM = TCSUtils.NextSignalDistanceM(this, 1);
         }
 
         public override void SetEmergency(bool emergency)
@@ -357,7 +357,7 @@ internal class BlockTracker
         }
         set
         {
-            if (signal == SignalPosition.Near && value == SignalPosition.Far)
+            if (signal == SignalPosition.Far && value == SignalPosition.Near)
                 nextBlock();
 
             signal = value;
@@ -404,13 +404,13 @@ internal class CodeChangeZone
 
     public void HandleBlockChange()
     {
-        blockLengthM = TCSUtils.NextSignalDistanceM(tcs, 0);
+        blockLengthM = TCSUtils.NextSignalDistanceM(tcs, 1);
     }
 }
 
 internal static class TCSUtils
 {
-    public const float NullSignalDistance = -1f;
+    public const float NullSignalDistance = 0f;
     public const Aspect NullSignalAspect = Aspect.None;
 
     public static float NextSignalDistanceM(TrainControlSystem tcs, int foresight)
@@ -545,7 +545,7 @@ internal class CurrentCode
 
     public void HandleBlockChange()
     {
-        PulseCode newCode = PulseCodeMapping.ToPulseCode(tcs.NextSignalAspect(0));
+        PulseCode newCode = PulseCodeMapping.ToPulseCode(TCSUtils.NextSignalAspect(tcs, 0));
         Console.WriteLine("CSS: {0} -> {1}", code, newCode);
         code = newCode;
     }
