@@ -234,17 +234,16 @@ namespace ORTS.Scripting.Script
             }
         }
 
-        private void HandleBlockChange()
+        private void HandleBlockChange(Aspect aspect, float blockLengthM)
         {
-            currentCode.HandleBlockChange();
-            changeZone.HandleBlockChange();
+            currentCode.HandleBlockChange(aspect, blockLengthM);
+            changeZone.HandleBlockChange(aspect, blockLengthM);
 
             // If passing another Approach signal, allow the displayed aspect to move back to Approach.
-            PulseCode code = currentCode.GetCurrent();
-            if (code == PulseCode.Approach)
+            if (currentCode.GetCurrent() == PulseCode.Approach)
                 stopZone = StopZone.InApproach;
 
-            blockLengthM = TCSUtils.NextSignalDistanceM(this, 1);
+            this.blockLengthM = blockLengthM;
         }
 
         public override void SetEmergency(bool emergency)
@@ -272,12 +271,12 @@ namespace ORTS.Scripting.Script
 
             if (code == PulseCode.Approach && nextCode == PulseCode.Restricting && changeZone.Inside())
                 stopZone = StopZone.Restricting;
-            // Once in Restricting, the displayed aspect should stay in Restricting.
             else if (code == PulseCode.Approach && stopZone != StopZone.Restricting)
                 stopZone = StopZone.InApproach;
             else
                 stopZone = StopZone.NotApplicable;
 
+            // Once in Restricting, the displayed aspect should stay in Restricting.
             if (code == PulseCode.Restricting || stopZone == StopZone.Restricting)
                 DisplayCode = PulseCode.Restricting;
             else if (Alarm == AlarmState.Off && blockLengthM >= MinCodeChangeBlockLengthM && nextCode > code)
@@ -334,7 +333,7 @@ namespace ORTS.Scripting.Script
 internal class BlockTracker
 {
     private readonly TrainControlSystem tcs;
-    private readonly Action nextBlock;
+    private readonly Action<Aspect, float> nextBlock;
 
     private enum SignalPosition
     {
@@ -351,13 +350,13 @@ internal class BlockTracker
         set
         {
             if (signal == SignalPosition.Far && value == SignalPosition.Near)
-                nextBlock();
+                nextBlock(TCSUtils.NextSignalAspect(tcs, 0), TCSUtils.NextSignalDistanceM(tcs, 1));
 
             signal = value;
         }
     }
 
-    public BlockTracker(TrainControlSystem parent, Action callback)
+    public BlockTracker(TrainControlSystem parent, Action<Aspect, float> callback)
     {
         tcs = parent;
         nextBlock = callback;
@@ -395,9 +394,9 @@ internal class CodeChangeZone
         return nextDistanceM != TCSUtils.NullSignalDistance && nextDistanceM < Math.Max(blockLengthM / 2, 1500 * ft2m);
     }
 
-    public void HandleBlockChange()
+    public void HandleBlockChange(Aspect _, float blockLengthM)
     {
-        blockLengthM = TCSUtils.NextSignalDistanceM(tcs, 1);
+        this.blockLengthM = blockLengthM;
     }
 }
 
@@ -536,9 +535,9 @@ internal class CurrentCode
         return code;
     }
 
-    public void HandleBlockChange()
+    public void HandleBlockChange(Aspect aspect, float _)
     {
-        PulseCode newCode = PulseCodeMapping.ToPulseCode(TCSUtils.NextSignalAspect(tcs, 0));
+        PulseCode newCode = PulseCodeMapping.ToPulseCode(aspect);
         Console.WriteLine("CSS: {0} -> {1}", code, newCode);
         code = newCode;
     }
