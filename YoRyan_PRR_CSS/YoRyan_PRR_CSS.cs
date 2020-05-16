@@ -116,22 +116,39 @@ namespace ORTS.Scripting.Script
                     }
                     else if (value == AlarmState.Overspeed)
                     {
+                        SetOverspeedWarningDisplay(true);
                         alarmTimer.Setup(CountdownSec);
                         alarmTimer.Start();
                         overspeedWarning();
                     }
+                    else if (value == AlarmState.OverspeedSuppress)
+                    {
+                        SetOverspeedWarningDisplay(true);
+                    }
+                    else if (value == AlarmState.Stop)
+                    {
+                        penaltyBrake.Set();
+                        penaltyWarning();
+                    }
                 }
                 else if (alarm == AlarmState.Countdown)
                 {
-                    if (value == AlarmState.Off || value == AlarmState.OverspeedSuppress)
+                    if (value == AlarmState.Off)
                     {
                         TriggerSoundWarning2();
                     }
                     else if (value == AlarmState.Overspeed)
                     {
                         TriggerSoundWarning2();
+                        SetOverspeedWarningDisplay(true);
                         alarmTimer.Setup(CountdownSec);
                         alarmTimer.Start();
+                        overspeedWarning();
+                    }
+                    else if (value == AlarmState.OverspeedSuppress)
+                    {
+                        TriggerSoundWarning2();
+                        SetOverspeedWarningDisplay(true);
                         overspeedWarning();
                     }
                     else if (value == AlarmState.Stop)
@@ -141,14 +158,26 @@ namespace ORTS.Scripting.Script
                         penaltyWarning();
                     }
                 }
-                else if (alarm == AlarmState.Overspeed && value == AlarmState.Stop)
+                else if (alarm == AlarmState.Overspeed)
                 {
-                    penaltyBrake.Set();
-                    penaltyWarning();
+                    if (value == AlarmState.Off || value == AlarmState.Countdown)
+                    {
+                        SetOverspeedWarningDisplay(false);
+                    }
+                    else if (value == AlarmState.Stop)
+                    {
+                        SetOverspeedWarningDisplay(false);
+                        penaltyBrake.Set();
+                        penaltyWarning();
+                    }
                 }
                 else if (alarm == AlarmState.OverspeedSuppress)
                 {
-                    if (value == AlarmState.Overspeed)
+                    if (value == AlarmState.Off || value == AlarmState.Countdown)
+                    {
+                        SetOverspeedWarningDisplay(false);
+                    }
+                    else if (value == AlarmState.Overspeed)
                     {
                         alarmTimer.Setup(CountdownSec);
                         alarmTimer.Start();
@@ -156,6 +185,7 @@ namespace ORTS.Scripting.Script
                     }
                     else if (value == AlarmState.Stop)
                     {
+                        SetOverspeedWarningDisplay(false);
                         penaltyBrake.Set();
                         penaltyWarning();
                     }
