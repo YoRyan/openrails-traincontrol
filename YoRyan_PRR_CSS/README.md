@@ -74,6 +74,12 @@ The two included .ini files turn the automatic speed control on and off.
 [CSS]
 ; Enable/disable automatic speed control.
 SpeedControl=true
+
+[Alerter]
+; Countdown time until the alerter activates (seconds)
+CountdownTimeS=60
+; Does manipulating the controls stop the countdown?
+DoControlsReset=false
 ```
 
 #### Release notes

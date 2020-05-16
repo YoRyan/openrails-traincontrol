@@ -44,6 +44,7 @@ namespace ORTS.Scripting.Script
 
         private BlockTracker blockTracker;
         private PenaltyBrake penaltyBrake;
+        private Vigilance vigilance;
         private CurrentCode currentCode;
         private CodeChangeZone changeZone;
 
@@ -231,18 +232,89 @@ namespace ORTS.Scripting.Script
             }
         }
 
+        private enum AlerterState
+        {
+            Countdown,
+            Alert,
+            Stop
+        }
+        private AlerterState alerter;
+        private Timer alerterTimer;
+        private AlerterState Alerter
+        {
+            get
+            {
+                return alerter;
+            }
+            set
+            {
+                if (alerter == AlerterState.Countdown)
+                {
+                    if (value == AlerterState.Alert)
+                    {
+                        SetVigilanceAlarm(true);
+                        SetVigilanceAlarmDisplay(true);
+                        alerterTimer.Setup(CountdownSec);
+                        alerterTimer.Start();
+                    }
+                    else if (value == AlerterState.Stop)
+                    {
+                        SetVigilanceAlarm(true);
+                        SetVigilanceAlarmDisplay(true);
+                        penaltyBrake.Set();
+                    }
+                }
+                else if (alerter == AlerterState.Alert)
+                {
+                    if (value == AlerterState.Countdown)
+                    {
+                        SetVigilanceAlarm(false);
+                        SetVigilanceAlarmDisplay(false);
+                    }
+                    else if (value == AlerterState.Stop)
+                    {
+                        penaltyBrake.Set();
+                    }
+                }
+                else if (alerter == AlerterState.Stop)
+                {
+                    if (value == AlerterState.Countdown)
+                    {
+                        SetVigilanceAlarm(false);
+                        SetVigilanceAlarmDisplay(false);
+                        penaltyBrake.Release();
+                    }
+                    else if (value == AlerterState.Alert)
+                    {
+                        SetVigilanceAlarm(false);
+                        SetVigilanceAlarmDisplay(false);
+                        penaltyBrake.Release();
+                        alerterTimer.Setup(CountdownSec);
+                        alerterTimer.Start();
+                    }
+                }
+
+                alerter = value;
+            }
+        }
+
         public override void Initialize()
         {
             stopZone = StopZone.NotApplicable;
             blockTracker = new BlockTracker(this);
             blockTracker.NewSignalBlock += HandleNewSignalBlock;
             penaltyBrake = new PenaltyBrake(this);
+            vigilance = new Vigilance(this, GetFloatParameter("Alerter", "CountdownTimeS", 60f), GetBoolParameter("Alerter", "DoControlsReset", false));
+            vigilance.Trip += HandleVigilanceTrip;
             currentCode = new CurrentCode(blockTracker, PulseCode.Clear);
             changeZone = new CodeChangeZone(this, blockTracker);
 
             alarm = AlarmState.Off;
             alarmTimer = new Timer(this);
+            upgrade = UpgradeState.Off;
             upgradeTimer = new Timer(this);
+            alerter = AlerterState.Countdown;
+            alerterTimer = new Timer(this);
 
             hasSpeedControl = GetBoolParameter("CSS", "SpeedControl", true);
 
@@ -264,7 +336,16 @@ namespace ORTS.Scripting.Script
                     Alarm = AlarmState.Off;
                     penaltyBrake.Release();
                 }
+
+                Alerter = AlerterState.Countdown;
+                vigilance.Reset();
             }
+        }
+
+        private void HandleVigilanceTrip(object sender, EventArgs _)
+        {
+            if (Alerter == AlerterState.Countdown)
+                Alerter = AlerterState.Alert;
         }
 
         private void HandleNewSignalBlock(object _, SignalBlockEventArgs e)
@@ -292,6 +373,7 @@ namespace ORTS.Scripting.Script
             blockTracker.Update();
             UpdateCabDisplay();
             UpdateAlarm();
+            UpdateAlerter();
         }
 
         private void UpdateCabDisplay()
@@ -355,6 +437,21 @@ namespace ORTS.Scripting.Script
                     Alarm = AlarmState.Off;
                 else if (!suppressing)
                     Alarm = AlarmState.Overspeed;
+            }
+        }
+
+        private void UpdateAlerter()
+        {
+            if (IsTrainControlEnabled())
+            {
+                vigilance.Update();
+
+                if (Alerter == AlerterState.Alert && alerterTimer.Triggered)
+                    Alerter = AlerterState.Stop;
+            }
+            else
+            {
+                Alerter = AlerterState.Countdown;
             }
         }
     }
@@ -618,7 +715,7 @@ internal class PenaltyBrake
     }
 }
 
-internal class Alerter
+internal class Vigilance
 {
     public event EventHandler Trip;
 
@@ -654,7 +751,7 @@ internal class Alerter
         }
     }
 
-    public Alerter(TrainControlSystem parent, float countdownTimeS, bool doControlsReset)
+    public Vigilance(TrainControlSystem parent, float countdownTimeS, bool doControlsReset)
     {
         tcs = parent;
         timer = new Timer(tcs);
