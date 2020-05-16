@@ -235,7 +235,7 @@ namespace ORTS.Scripting.Script
             blockTracker = new BlockTracker(this);
             blockTracker.NewSignalBlock += HandleNewSignalBlock;
             penaltyBrake = new PenaltyBrake(this);
-            currentCode = new CurrentCode(blockTracker, PulseCode.Clear);
+            currentCode = new CurrentCode(blockTracker, IsColdStart() ? PulseCode.Restricting : PulseCode.Clear);
             changeZone = new CodeChangeZone(this, blockTracker);
 
             alarm = AlarmState.Off;
