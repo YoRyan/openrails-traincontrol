@@ -204,7 +204,7 @@ namespace ORTS.Scripting.Script
             stopZone = StopZone.NotApplicable;
             blockTracker = new BlockTracker(this, HandleBlockChange);
             penaltyBrake = new PenaltyBrake(this);
-            currentCode = new CurrentCode(this, PulseCode.Restricting); // TODO - spawn with Clear at speed?
+            currentCode = new CurrentCode(this, PulseCode.Clear);
             changeZone = new CodeChangeZone(this);
 
             alarm = AlarmState.Off;
