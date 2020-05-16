@@ -41,7 +41,7 @@ namespace ORTS.Scripting.Script
         public float SpeedReductionDiffMpS = 8.94f; // 20 mph
 
         private PCSSwitch pcs;
-        private Alerter alerter;
+        private Vigilance vigilance;
 
         private enum AlarmState
         {
@@ -162,8 +162,8 @@ namespace ORTS.Scripting.Script
             SpeedReductionDiffMpS = getScaledFloatParameter("SpeedReductionDiffMPH", SpeedReductionDiffMpS, mph2mps);
 
             pcs = new PCSSwitch(this);
-            alerter = new Alerter(this, GetFloatParameter("Alerter", "CountdownTimeS", 60f), GetBoolParameter("Alerter", "DoControlsReset", true));
-            alerter.Trip += HandleAlerterTrip;
+            vigilance = new Vigilance(this, GetFloatParameter("Alerter", "CountdownTimeS", 60f), GetBoolParameter("Alerter", "DoControlsReset", true));
+            vigilance.Trip += HandleVigilanceTrip;
 
             alarm = AlarmState.Off;
             alarmTimer = new Timer(this);
@@ -180,11 +180,11 @@ namespace ORTS.Scripting.Script
                 if (Alarm == AlarmState.Countdown || Alarm == AlarmState.Stop)
                     Alarm = AlarmState.Off;
 
-                alerter.Reset();
+                vigilance.Reset();
             }
         }
 
-        private void HandleAlerterTrip(object sender, EventArgs _)
+        private void HandleVigilanceTrip(object sender, EventArgs _)
         {
             if (Alarm == AlarmState.Off)
                 Alarm = AlarmState.Countdown;
@@ -208,7 +208,7 @@ namespace ORTS.Scripting.Script
                 Alarm = AlarmState.Stop;
 
             pcs.Update();
-            alerter.Update();
+            vigilance.Update();
             Signal = GetSignalState();
             Speed = GetSpeedState();
         }
@@ -433,7 +433,7 @@ internal class PCSSwitch
     }
 }
 
-internal class Alerter
+internal class Vigilance
 {
     public event EventHandler Trip;
 
@@ -469,7 +469,7 @@ internal class Alerter
         }
     }
 
-    public Alerter(TrainControlSystem parent, float countdownTimeS, bool doControlsReset)
+    public Vigilance(TrainControlSystem parent, float countdownTimeS, bool doControlsReset)
     {
         tcs = parent;
         timer = new Timer(tcs);

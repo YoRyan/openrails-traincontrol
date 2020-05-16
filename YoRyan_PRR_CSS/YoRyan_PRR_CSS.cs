@@ -25,7 +25,9 @@
  */
 
 using System;
+using System.Collections.Generic;
 using Orts.Simulation;
+using Orts.Simulation.RollingStocks;
 using ORTS.Scripting.Api;
 
 namespace ORTS.Scripting.Script
@@ -613,5 +615,92 @@ internal class PenaltyBrake
             tcs.SetPenaltyApplicationDisplay(false);
             set = false;
         }
+    }
+}
+
+internal class Alerter
+{
+    public event EventHandler Trip;
+
+    private readonly TrainControlSystem tcs;
+    private readonly List<IControlTracker> controls = new List<IControlTracker>();
+    private readonly Timer timer;
+    private readonly float countdownTimeS;
+    private readonly bool doControlsReset;
+
+    private interface IControlTracker
+    {
+        bool HasChanged();
+    }
+    private class ControlTracker<T> : IControlTracker where T : IEquatable<T>
+    {
+        private readonly MSTSLocomotive loco;
+        private readonly Func<MSTSLocomotive, T> readValue;
+        private IEquatable<T> state;
+
+        public ControlTracker(MSTSLocomotive loco, Func<MSTSLocomotive, T> readValue)
+        {
+            this.loco = loco;
+            this.readValue = readValue;
+            state = readValue(loco);
+        }
+
+        public bool HasChanged()
+        {
+            IEquatable<T> newState = readValue(loco);
+            bool changed = !newState.Equals(state);
+            state = newState;
+            return changed;
+        }
+    }
+
+    public Alerter(TrainControlSystem parent, float countdownTimeS, bool doControlsReset)
+    {
+        tcs = parent;
+        timer = new Timer(tcs);
+        this.countdownTimeS = countdownTimeS;
+        this.doControlsReset = doControlsReset;
+
+        if (doControlsReset)
+        {
+            var loco = tcs.Locomotive();
+            controls.Add(new ControlTracker<float>(loco, (l) => l.ThrottleController.CurrentValue));
+            controls.Add(new ControlTracker<float>(loco, (l) => l.DynamicBrakeController.CurrentValue));
+            controls.Add(new ControlTracker<float>(loco, (l) => l.TrainBrakeController.CurrentValue));
+            controls.Add(new ControlTracker<float>(loco, (l) => l.EngineBrakeController.CurrentValue));
+        }
+    }
+
+    public void Update()
+    {
+        if (timer.Triggered)
+        {
+            timer.Stop();
+            Trip.Invoke(this, EventArgs.Empty);
+        }
+        else if (countdownTimeS > 0 && tcs.IsAlerterEnabled() && tcs.SpeedMpS() >= 1f)
+        {
+            if (!timer.Started)
+            {
+                timer.Setup(countdownTimeS);
+                timer.Start();
+            }
+        }
+        else
+        {
+            Reset();
+        }
+
+        bool movedControls = false;
+        foreach (IControlTracker control in controls)
+            if (control.HasChanged())
+                movedControls = true;
+        if (doControlsReset && movedControls)
+            Reset();
+    }
+
+    public void Reset()
+    {
+        timer.Stop();
     }
 }
