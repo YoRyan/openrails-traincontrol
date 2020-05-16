@@ -232,10 +232,11 @@ namespace ORTS.Scripting.Script
         public override void Initialize()
         {
             stopZone = StopZone.NotApplicable;
-            blockTracker = new BlockTracker(this, HandleBlockChange);
+            blockTracker = new BlockTracker(this);
+            blockTracker.NewSignalBlock += HandleNewSignalBlock;
             penaltyBrake = new PenaltyBrake(this);
-            currentCode = new CurrentCode(this, PulseCode.Clear);
-            changeZone = new CodeChangeZone(this);
+            currentCode = new CurrentCode(blockTracker, PulseCode.Clear);
+            changeZone = new CodeChangeZone(this, blockTracker);
 
             alarm = AlarmState.Off;
             alarmTimer = new Timer(this);
@@ -264,16 +265,13 @@ namespace ORTS.Scripting.Script
             }
         }
 
-        private void HandleBlockChange(Aspect aspect, float blockLengthM)
+        private void HandleNewSignalBlock(object _, SignalBlockEventArgs e)
         {
-            currentCode.HandleBlockChange(aspect, blockLengthM);
-            changeZone.HandleBlockChange(aspect, blockLengthM);
-
             // If passing another Approach signal, allow the displayed aspect to move back to Approach.
-            if (currentCode.GetCurrent() == PulseCode.Approach)
+            if (PulseCodeMapping.ToPulseCode(e.Aspect) == PulseCode.Approach)
                 stopZone = StopZone.InApproach;
 
-            this.blockLengthM = blockLengthM;
+            blockLengthM = e.BlockLengthM;
         }
 
         public override void SetEmergency(bool emergency)
@@ -360,10 +358,22 @@ namespace ORTS.Scripting.Script
     }
 }
 
+internal class SignalBlockEventArgs : EventArgs
+{
+    public readonly Aspect Aspect;
+    public readonly float BlockLengthM;
+
+    public SignalBlockEventArgs(Aspect aspect, float blockLengthM)
+    {
+        Aspect = aspect;
+        BlockLengthM = blockLengthM;
+    }
+}
+
 internal class BlockTracker
 {
+    public event EventHandler<SignalBlockEventArgs> NewSignalBlock;
     private readonly TrainControlSystem tcs;
-    private readonly Action<Aspect, float> nextBlock;
 
     private enum SignalPosition
     {
@@ -380,16 +390,18 @@ internal class BlockTracker
         set
         {
             if (signal == SignalPosition.Far && value == SignalPosition.Near)
-                nextBlock(TCSUtils.NextSignalAspect(tcs, 0), TCSUtils.NextSignalDistanceM(tcs, 1));
+            {
+                var e = new SignalBlockEventArgs(TCSUtils.NextSignalAspect(tcs, 0), TCSUtils.NextSignalDistanceM(tcs, 1));
+                NewSignalBlock.Invoke(this, e);
+            }
 
             signal = value;
         }
     }
 
-    public BlockTracker(TrainControlSystem parent, Action<Aspect, float> callback)
+    public BlockTracker(TrainControlSystem parent)
     {
         tcs = parent;
-        nextBlock = callback;
     }
 
     public void Update()
@@ -412,9 +424,10 @@ internal class CodeChangeZone
     private readonly TrainControlSystem tcs;
     private float blockLengthM = 0f;
 
-    public CodeChangeZone(TrainControlSystem parent)
+    public CodeChangeZone(TrainControlSystem parent, BlockTracker blockTracker)
     {
         tcs = parent;
+        blockTracker.NewSignalBlock += HandleNewSignalBlock;
     }
 
     public bool Inside()
@@ -424,9 +437,9 @@ internal class CodeChangeZone
         return nextDistanceM != TCSUtils.NullSignalDistance && nextDistanceM < Math.Max(blockLengthM / 2, 1500 * ft2m);
     }
 
-    public void HandleBlockChange(Aspect _, float blockLengthM)
+    public void HandleNewSignalBlock(object _, SignalBlockEventArgs e)
     {
-        this.blockLengthM = blockLengthM;
+        blockLengthM = e.BlockLengthM;
     }
 }
 
@@ -551,12 +564,11 @@ internal static class PulseCodeMapping
 
 internal class CurrentCode
 {
-    private readonly TrainControlSystem tcs;
     private PulseCode code;
 
-    public CurrentCode(TrainControlSystem parent, PulseCode initCode)
+    public CurrentCode(BlockTracker blockTracker, PulseCode initCode)
     {
-        tcs = parent;
+        blockTracker.NewSignalBlock += HandleNewSignalBlock;
         code = initCode;
     }
 
@@ -565,9 +577,9 @@ internal class CurrentCode
         return code;
     }
 
-    public void HandleBlockChange(Aspect aspect, float _)
+    public void HandleNewSignalBlock(object _, SignalBlockEventArgs e)
     {
-        PulseCode newCode = PulseCodeMapping.ToPulseCode(aspect);
+        PulseCode newCode = PulseCodeMapping.ToPulseCode(e.Aspect);
         Console.WriteLine("CSS: {0} -> {1}", code, newCode);
         code = newCode;
     }
