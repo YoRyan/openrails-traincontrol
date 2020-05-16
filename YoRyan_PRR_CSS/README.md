@@ -3,6 +3,10 @@
 Simulates the cab signaling system used by the Pennsylvania Railroad, intended
 for use on Vince Cockeram's PRR Eastern Region route.
 
+#### Video Demo
+
+[![YouTube video](http://img.youtube.com/vi/3dOqYsr0G08/0.jpg)](http://www.youtube.com/watch?v=3dOqYsr0G08 "YouTube video")
+
 #### Installation
 
 After copying this directory to the `Common.Script` folder, determine whether or
