@@ -3,6 +3,10 @@
 Simulates the ATS system installed on the former main lines of the Santa Fe,
 currently in use by Amtrak, Metrolink, Coaster, and the New Mexico Rail Runner.
 
+#### Video Demo
+
+[![YouTube video](http://img.youtube.com/vi/fsibWAM4SpA/0.jpg)](http://www.youtube.com/watch?v=fsibWAM4SpA "YouTube video")
+
 #### Installation
 
 After copying this directory to the `Common.Script` folder, add the following to
