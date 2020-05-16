@@ -25,7 +25,9 @@
  */
 
 using System;
+using System.Collections.Generic;
 using System.Linq;
+using Orts.Simulation.RollingStocks;
 using ORTS.Scripting.Api;
 
 namespace ORTS.Scripting.Script
@@ -39,6 +41,7 @@ namespace ORTS.Scripting.Script
         public float SpeedReductionDiffMpS = 8.94f; // 20 mph
 
         private PCSSwitch pcs;
+        private Alerter alerter;
 
         private enum AlarmState
         {
@@ -159,6 +162,9 @@ namespace ORTS.Scripting.Script
             SpeedReductionDiffMpS = getScaledFloatParameter("SpeedReductionDiffMPH", SpeedReductionDiffMpS, mph2mps);
 
             pcs = new PCSSwitch(this);
+            alerter = new Alerter(this, GetFloatParameter("Alerter", "CountdownTimeS", 60f), GetBoolParameter("Alerter", "DoControlsReset", true));
+            alerter.Trip += HandleAlerterTrip;
+
             alarm = AlarmState.Off;
             alarmTimer = new Timer(this);
             signal = GetSignalState();
@@ -170,8 +176,18 @@ namespace ORTS.Scripting.Script
         public override void HandleEvent(TCSEvent evt, string message)
         {
             if (evt == TCSEvent.AlerterPressed)
+            {
                 if (Alarm == AlarmState.Countdown || Alarm == AlarmState.Stop)
                     Alarm = AlarmState.Off;
+
+                alerter.Reset();
+            }
+        }
+
+        private void HandleAlerterTrip(object sender, EventArgs _)
+        {
+            if (Alarm == AlarmState.Off)
+                Alarm = AlarmState.Countdown;
         }
 
         public override void SetEmergency(bool emergency)
@@ -192,6 +208,7 @@ namespace ORTS.Scripting.Script
                 Alarm = AlarmState.Stop;
 
             pcs.Update();
+            alerter.Update();
             Signal = GetSignalState();
             Speed = GetSpeedState();
         }
@@ -413,5 +430,92 @@ internal class PCSSwitch
     public void InstantRelease()
     {
         State = SwitchState.Released;
+    }
+}
+
+internal class Alerter
+{
+    public event EventHandler Trip;
+
+    private readonly TrainControlSystem tcs;
+    private readonly List<IControlTracker> controls = new List<IControlTracker>();
+    private readonly Timer timer;
+    private readonly float countdownTimeS;
+    private readonly bool doControlsReset;
+
+    private interface IControlTracker
+    {
+        bool HasChanged();
+    }
+    private class ControlTracker<T> : IControlTracker where T : IEquatable<T>
+    {
+        private readonly MSTSLocomotive loco;
+        private readonly Func<MSTSLocomotive, T> readValue;
+        private IEquatable<T> state;
+
+        public ControlTracker(MSTSLocomotive loco, Func<MSTSLocomotive, T> readValue)
+        {
+            this.loco = loco;
+            this.readValue = readValue;
+            state = readValue(loco);
+        }
+
+        public bool HasChanged()
+        {
+            IEquatable<T> newState = readValue(loco);
+            bool changed = !newState.Equals(state);
+            state = newState;
+            return changed;
+        }
+    }
+
+    public Alerter(TrainControlSystem parent, float countdownTimeS, bool doControlsReset)
+    {
+        tcs = parent;
+        timer = new Timer(tcs);
+        this.countdownTimeS = countdownTimeS;
+        this.doControlsReset = doControlsReset;
+
+        if (doControlsReset)
+        {
+            var loco = tcs.Locomotive();
+            controls.Add(new ControlTracker<float>(loco, (l) => l.ThrottleController.CurrentValue));
+            controls.Add(new ControlTracker<float>(loco, (l) => l.DynamicBrakeController.CurrentValue));
+            controls.Add(new ControlTracker<float>(loco, (l) => l.TrainBrakeController.CurrentValue));
+            controls.Add(new ControlTracker<float>(loco, (l) => l.EngineBrakeController.CurrentValue));
+        }
+    }
+
+    public void Update()
+    {
+        if (timer.Triggered)
+        {
+            timer.Stop();
+            Trip.Invoke(this, EventArgs.Empty);
+        }
+        else if (countdownTimeS > 0 && tcs.IsAlerterEnabled() && tcs.SpeedMpS() >= 1f)
+        {
+            if (!timer.Started)
+            {
+                timer.Setup(countdownTimeS);
+                timer.Start();
+            }
+        }
+        else
+        {
+            Reset();
+        }
+
+        bool movedControls = false;
+        foreach (IControlTracker control in controls)
+            if (control.HasChanged())
+                movedControls = true;
+        if (doControlsReset && movedControls)
+            Reset();
+    }
+
+    public void Reset()
+    {
+        timer.Stop();
     }
 }

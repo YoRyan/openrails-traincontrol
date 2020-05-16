@@ -57,6 +57,12 @@ SignalActivateSpeedMPH=40
 SpeedReductionDiffMPH=20
 ; Distance before qualifying speed drops to place inductors (miles)
 SpeedReductionDistMi=2
+
+[Alerter]
+; Countdown time until the alerter activates (seconds)
+CountdownTimeS=60
+; Does manipulating the controls stop the countdown?
+DoControlsReset=true
 ```
 
 #### Release notes
@@ -66,3 +72,6 @@ SpeedReductionDistMi=2
 
 * v1.0a - May 6, 2020
   * Set the emergency brake when asked by Open Rails to do so
+
+* v1.1 - May 15, 2020
+  * Re-implement the alerter
