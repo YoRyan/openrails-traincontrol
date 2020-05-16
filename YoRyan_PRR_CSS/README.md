@@ -39,8 +39,8 @@ mini-route, you can use the included conversion kit to outfit all locomotives
 
 #### Overview
 
-The PRR's cab signaling system used pulse codes and was capable of communicating
-four aspects:
+The PRR's cab signaling system used pulse codes that were capable of
+communicating four aspects:
 
 | Aspect | Meaning |
 | --- | --- |
@@ -83,3 +83,6 @@ DoControlsReset=false
 ```
 
 #### Release notes
+
+* v1.0 - May 16, 2020
+  * Initial release
