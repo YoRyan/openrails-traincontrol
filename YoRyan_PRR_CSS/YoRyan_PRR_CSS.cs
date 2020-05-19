@@ -37,7 +37,7 @@ namespace ORTS.Scripting.Script
         public const float CountdownSec = 6f;
         public const float UpgradeSoundSec = 1f;
         public const float SpeedLimitMarginMpS = 1.34112f; // 3 mph
-        public const float MinCodeChangeBlockLengthM = 1600f; // 1 mi
+        public const float MinStopZoneLengthM = 457f; // 1500 ft
 
         private bool hasSpeedControl;
         private float blockLengthM = TCSUtils.NullSignalDistance;
@@ -47,14 +47,6 @@ namespace ORTS.Scripting.Script
         private Vigilance vigilance;
         private CurrentCode currentCode;
         private CodeChangeZone changeZone;
-
-        private enum StopZone
-        {
-            NotApplicable,
-            InApproach,
-            Restricting
-        }
-        private StopZone stopZone;
 
         private PulseCode displayCode;
         private PulseCode DisplayCode
@@ -71,7 +63,7 @@ namespace ORTS.Scripting.Script
                 Message(ConfirmLevel.None, "Cab Signal: " + PulseCodeMapping.ToMessageString(value));
                 if (value < displayCode)
                 {
-                    if (Alarm == AlarmState.Off && IsTrainControlEnabled())
+                    if (Alarm == AlarmState.Off)
                         Alarm = AlarmState.Countdown;
                 }
                 else
@@ -193,6 +185,34 @@ namespace ORTS.Scripting.Script
                         penaltyWarning();
                     }
                 }
+                else if (alarm == AlarmState.Stop)
+                {
+                    if (alarm == AlarmState.Countdown)
+                    {
+                        alarmTimer.Setup(CountdownSec);
+                        alarmTimer.Start();
+                        penaltyBrake.Release();
+                        TriggerSoundWarning1();
+                    }
+                    else if (alarm == AlarmState.Off)
+                    {
+                        penaltyBrake.Release();
+                    }
+                    else if (alarm == AlarmState.Overspeed)
+                    {
+                        alarmTimer.Setup(CountdownSec);
+                        alarmTimer.Start();
+                        penaltyBrake.Release();
+                        SetOverspeedWarningDisplay(true);
+                        overspeedWarning();
+                    }
+                    else if (alarm == AlarmState.OverspeedSuppress)
+                    {
+                        penaltyBrake.Release();
+                        SetOverspeedWarningDisplay(true);
+                        overspeedWarning();
+                    }
+                }
 
                 if (alarm != value)
                 {
@@ -300,7 +320,6 @@ namespace ORTS.Scripting.Script
 
         public override void Initialize()
         {
-            stopZone = StopZone.NotApplicable;
             blockTracker = new BlockTracker(this);
             blockTracker.NewSignalBlock += HandleNewSignalBlock;
             penaltyBrake = new PenaltyBrake(this);
@@ -327,6 +346,7 @@ namespace ORTS.Scripting.Script
             {
                 if (Alarm == AlarmState.Countdown)
                 {
+
                     float speed = PulseCodeMapping.ToSpeedMpS(DisplayCode);
                     bool overspeed = speed != 0 && SpeedMpS() > speed + SpeedLimitMarginMpS;
                     Alarm = overspeed ? AlarmState.Overspeed : AlarmState.Off;
@@ -334,7 +354,6 @@ namespace ORTS.Scripting.Script
                 else if (Alarm == AlarmState.Stop && SpeedMpS() < 0.1f)
                 {
                     Alarm = AlarmState.Off;
-                    penaltyBrake.Release();
                 }
 
                 Alerter = AlerterState.Countdown;
@@ -350,10 +369,6 @@ namespace ORTS.Scripting.Script
 
         private void HandleNewSignalBlock(object _, SignalBlockEventArgs e)
         {
-            // If passing another Approach signal, allow the displayed aspect to move back to Approach.
-            if (PulseCodeMapping.ToPulseCode(e.Aspect) == PulseCode.Approach)
-                stopZone = StopZone.InApproach;
-
             blockLengthM = e.BlockLengthM;
         }
 
@@ -371,30 +386,22 @@ namespace ORTS.Scripting.Script
                 Upgrade = UpgradeState.Off;
 
             blockTracker.Update();
-            UpdateCabDisplay();
+            UpdateCode();
             UpdateAlarm();
             UpdateAlerter();
         }
 
-        private void UpdateCabDisplay()
+        private void UpdateCode()
         {
-            PulseCode code = currentCode.GetCurrent();
-            var nextCode = PulseCodeMapping.ToPulseCode(TCSUtils.NextSignalAspect(this, 0));
-
-            if (code == PulseCode.Approach && nextCode == PulseCode.Restricting && changeZone.Inside())
-                stopZone = StopZone.Restricting;
-            else if (code == PulseCode.Approach && stopZone != StopZone.Restricting)
-                stopZone = StopZone.InApproach;
-            else
-                stopZone = StopZone.NotApplicable;
-
-            // Once in Restricting, the displayed aspect should stay in Restricting.
-            if (code == PulseCode.Restricting || stopZone == StopZone.Restricting)
+            float nextSignalM = TCSUtils.NextSignalDistanceM(this, 0);
+            PulseCode thisCode = currentCode.GetCurrent();
+            PulseCode changeCode = PulseCodeMapping.ToPriorPulseCode(TCSUtils.NextSignalAspect(this, 0));
+            if (nextSignalM != TCSUtils.NullSignalDistance && nextSignalM <= MinStopZoneLengthM && changeCode == PulseCode.Restricting)
                 DisplayCode = PulseCode.Restricting;
-            else if (Alarm == AlarmState.Off && blockLengthM >= MinCodeChangeBlockLengthM && nextCode > code)
-                DisplayCode = nextCode;
+            else if (changeZone.Inside() && thisCode != PulseCode.Restricting)
+                DisplayCode = changeCode;
             else
-                DisplayCode = code;
+                DisplayCode = thisCode;
 
             SetNextSignalAspect(PulseCodeMapping.ToCabDisplay(DisplayCode));
             SetNextSpeedLimitMpS(PulseCodeMapping.ToSpeedMpS(DisplayCode));
@@ -404,7 +411,7 @@ namespace ORTS.Scripting.Script
         {
             if (!IsTrainControlEnabled())
             {
-                if (Alarm == AlarmState.Countdown && alarmTimer.Triggered)
+                if (Alarm != AlarmState.Countdown || alarmTimer.Triggered)
                     Alarm = AlarmState.Off;
                 return;
             }
@@ -514,14 +521,15 @@ internal class BlockTracker
  *                                signal  o
  *                                        |
  * +--------------------------------------+
- *     signal block
- *                     +------------------+
+ *     signal block    +------------------+
  *                       code change zone
  */
 internal class CodeChangeZone
 {
     private readonly TrainControlSystem tcs;
     private float blockLengthM = 0f;
+    private float codeChangeM = 0f;
+    private float trailingSwitchM = 0f;
 
     public CodeChangeZone(TrainControlSystem parent, BlockTracker blockTracker)
     {
@@ -532,13 +540,19 @@ internal class CodeChangeZone
     public bool Inside()
     {
         float nextDistanceM = TCSUtils.NextSignalDistanceM(tcs, 0);
-        const float ft2m = 0.3048f;
-        return nextDistanceM != TCSUtils.NullSignalDistance && nextDistanceM < Math.Max(blockLengthM / 2, 1500 * ft2m);
+        if (nextDistanceM == TCSUtils.NullSignalDistance)
+            return false;
+        else if (trailingSwitchM != float.MaxValue)
+            return nextDistanceM < Math.Max(blockLengthM - codeChangeM, blockLengthM - trailingSwitchM);
+        else
+            return nextDistanceM < blockLengthM - codeChangeM;
     }
 
     public void HandleNewSignalBlock(object _, SignalBlockEventArgs e)
     {
         blockLengthM = e.BlockLengthM;
+        codeChangeM = e.BlockLengthM / 2;
+        trailingSwitchM = tcs.NextTrailingDivergingSwitchDistanceM(e.BlockLengthM);
     }
 }
 
@@ -599,6 +613,26 @@ internal static class PulseCodeMapping
             case Aspect.Approach_3:
             case Aspect.Approach_1:
                 return PulseCode.Approach;
+            case Aspect.Restricted:
+            case Aspect.StopAndProceed:
+            case Aspect.Stop:
+            case Aspect.Permission:
+            default:
+                return PulseCode.Restricting;
+        }
+    }
+
+    public static PulseCode ToPriorPulseCode(Aspect aspect)
+    {
+        switch (aspect)
+        {
+            case Aspect.Clear_2:
+            case Aspect.Approach_2:
+                return PulseCode.Clear;
+            case Aspect.Clear_1:
+            case Aspect.Approach_3:
+            case Aspect.Approach_1:
+                return PulseCode.ApproachMedium;
             case Aspect.Restricted:
             case Aspect.StopAndProceed:
             case Aspect.Stop:
