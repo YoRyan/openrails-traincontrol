@@ -911,10 +911,10 @@ internal class Vigilance
         if (doControlsReset)
         {
             var loco = tcs.Locomotive();
-            controls.Add(new ControlTracker<float>(loco, (l) => l.ThrottleController.CurrentValue));
-            controls.Add(new ControlTracker<float>(loco, (l) => l.DynamicBrakeController.CurrentValue));
-            controls.Add(new ControlTracker<float>(loco, (l) => l.TrainBrakeController.CurrentValue));
-            controls.Add(new ControlTracker<float>(loco, (l) => l.EngineBrakeController.CurrentValue));
+            controls.Add(new ControlTracker<float>(loco, (l) => l.ThrottleController != null ? l.ThrottleController.CurrentValue : 0f));
+            controls.Add(new ControlTracker<float>(loco, (l) => l.DynamicBrakeController != null ? l.DynamicBrakeController.CurrentValue : 0f));
+            controls.Add(new ControlTracker<float>(loco, (l) => l.TrainBrakeController != null ? l.TrainBrakeController.CurrentValue : 0f));
+            controls.Add(new ControlTracker<float>(loco, (l) => l.EngineBrakeController != null ? l.EngineBrakeController.CurrentValue : 0f));
         }
     }
 
