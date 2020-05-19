@@ -55,7 +55,7 @@ namespace ORTS.Scripting.Script
         private CurrentCode currentCode;
         private CodeChangeZone changeZone;
 
-        private PulseCode displayCode;
+        private PulseCode displayCode = PulseCode.Clear125;
         private PulseCode DisplayCode
         {
             get
@@ -414,7 +414,7 @@ namespace ORTS.Scripting.Script
             penaltyBrake = new PenaltyBrake(this);
             vigilance = new Vigilance(this, GetFloatParameter("Alerter", "CountdownTimeS", 60f), GetBoolParameter("Alerter", "DoControlsReset", true));
             vigilance.Trip += HandleVigilanceTrip;
-            currentCode = new CurrentCode(blockTracker, PulseCode.Clear125);
+            currentCode = new CurrentCode(blockTracker, displayCode);
             changeZone = new CodeChangeZone(this, blockTracker);
 
             atc = ATCState.Off;
@@ -475,15 +475,18 @@ namespace ORTS.Scripting.Script
 
         private void UpdateCode()
         {
-            float nextSignalM = TCSUtils.NextSignalDistanceM(this, 0);
-            PulseCode thisCode = currentCode.GetCurrent();
-            PulseCode changeCode = PulseCodeMapping.ToPriorPulseCode(TCSUtils.NextSignalAspect(this, 0));
-            if (nextSignalM != TCSUtils.NullSignalDistance && nextSignalM <= MinStopZoneLengthM && changeCode == PulseCode.Restricting)
-                DisplayCode = PulseCode.Restricting;
-            else if (changeZone.Inside() && thisCode != PulseCode.Restricting)
-                DisplayCode = changeCode;
-            else
-                DisplayCode = thisCode;
+            if (GameTime() >= 1f)
+            {
+                float nextSignalM = TCSUtils.NextSignalDistanceM(this, 0);
+                PulseCode thisCode = currentCode.GetCurrent();
+                PulseCode changeCode = PulseCodeMapping.ToPriorPulseCode(TCSUtils.NextSignalAspect(this, 0));
+                if (nextSignalM != TCSUtils.NullSignalDistance && nextSignalM <= MinStopZoneLengthM && changeCode == PulseCode.Restricting)
+                    DisplayCode = PulseCode.Restricting;
+                else if (changeZone.Inside() && thisCode != PulseCode.Restricting)
+                    DisplayCode = changeCode;
+                else
+                    DisplayCode = thisCode;
+            }
 
             SetNextSignalAspect(PulseCodeMapping.ToCabDisplay(DisplayCode));
             SetNextSpeedLimitMpS(PulseCodeMapping.ToSpeedMpS(DisplayCode));
