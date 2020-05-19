@@ -90,3 +90,7 @@ DoControlsReset=false
 
 * v1.0 - May 16, 2020
   * Initial release
+* v1.1 - May 18, 2020
+  * Cab signal may now downgrade mid-block, or upgrade after the first trailing
+    switch
+  * Fix missing warning tones in autopilot mode
