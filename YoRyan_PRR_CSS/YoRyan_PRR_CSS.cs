@@ -398,7 +398,7 @@ namespace ORTS.Scripting.Script
             PulseCode changeCode = PulseCodeMapping.ToPriorPulseCode(TCSUtils.NextSignalAspect(this, 0));
             if (nextSignalM != TCSUtils.NullSignalDistance && nextSignalM <= MinStopZoneLengthM && changeCode == PulseCode.Restricting)
                 DisplayCode = PulseCode.Restricting;
-            else if (changeZone.Inside() && thisCode != PulseCode.Restricting)
+            else if (changeZone.Inside() && DisplayCode != PulseCode.Restricting)
                 DisplayCode = changeCode;
             else
                 DisplayCode = thisCode;
