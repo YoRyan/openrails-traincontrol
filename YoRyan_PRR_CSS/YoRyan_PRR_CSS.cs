@@ -45,6 +45,7 @@ namespace ORTS.Scripting.Script
         private BlockTracker blockTracker;
         private PenaltyBrake penaltyBrake;
         private Vigilance vigilance;
+        private bool doControlsResetAlerter;
         private CurrentCode currentCode;
         private CodeChangeZone changeZone;
 
@@ -323,8 +324,9 @@ namespace ORTS.Scripting.Script
             blockTracker = new BlockTracker(this);
             blockTracker.NewSignalBlock += HandleNewSignalBlock;
             penaltyBrake = new PenaltyBrake(this);
-            vigilance = new Vigilance(this, GetFloatParameter("Alerter", "CountdownTimeS", 60f), GetBoolParameter("Alerter", "DoControlsReset", false));
+            vigilance = new Vigilance(this, GetFloatParameter("Alerter", "CountdownTimeS", 60f));
             vigilance.Trip += HandleVigilanceTrip;
+            doControlsResetAlerter = GetBoolParameter("Alerter", "DoControlsReset", false);
             currentCode = new CurrentCode(blockTracker, PulseCode.Clear);
             changeZone = new CodeChangeZone(this, blockTracker);
 
@@ -358,6 +360,22 @@ namespace ORTS.Scripting.Script
 
                 Alerter = AlerterState.Countdown;
                 vigilance.Reset();
+            }
+
+            if (doControlsResetAlerter)
+            {
+                switch (evt)
+                {
+                    case TCSEvent.ThrottleChanged:
+                    case TCSEvent.TrainBrakeChanged:
+                    case TCSEvent.EngineBrakeChanged:
+                    case TCSEvent.DynamicBrakeChanged:
+                    case TCSEvent.ReverserChanged:
+                    case TCSEvent.GearBoxChanged:
+                        Alerter = AlerterState.Countdown;
+                        vigilance.Reset();
+                        break;
+                }
             }
         }
 
@@ -760,52 +778,14 @@ internal class Vigilance
     public event EventHandler Trip;
 
     private readonly TrainControlSystem tcs;
-    private readonly List<IControlTracker> controls = new List<IControlTracker>();
     private readonly Timer timer;
     private readonly float countdownTimeS;
-    private readonly bool doControlsReset;
 
-    private interface IControlTracker
-    {
-        bool HasChanged();
-    }
-    private class ControlTracker<T> : IControlTracker where T : IEquatable<T>
-    {
-        private readonly MSTSLocomotive loco;
-        private readonly Func<MSTSLocomotive, T> readValue;
-        private IEquatable<T> state;
-
-        public ControlTracker(MSTSLocomotive loco, Func<MSTSLocomotive, T> readValue)
-        {
-            this.loco = loco;
-            this.readValue = readValue;
-            state = readValue(loco);
-        }
-
-        public bool HasChanged()
-        {
-            IEquatable<T> newState = readValue(loco);
-            bool changed = !newState.Equals(state);
-            state = newState;
-            return changed;
-        }
-    }
-
-    public Vigilance(TrainControlSystem parent, float countdownTimeS, bool doControlsReset)
+    public Vigilance(TrainControlSystem parent, float countdownTimeS)
     {
         tcs = parent;
         timer = new Timer(tcs);
         this.countdownTimeS = countdownTimeS;
-        this.doControlsReset = doControlsReset;
-
-        if (doControlsReset)
-        {
-            var loco = tcs.Locomotive();
-            controls.Add(new ControlTracker<float>(loco, (l) => l.ThrottleController != null ? l.ThrottleController.CurrentValue : 0f));
-            controls.Add(new ControlTracker<float>(loco, (l) => l.DynamicBrakeController != null ? l.DynamicBrakeController.CurrentValue : 0f));
-            controls.Add(new ControlTracker<float>(loco, (l) => l.TrainBrakeController != null ? l.TrainBrakeController.CurrentValue : 0f));
-            controls.Add(new ControlTracker<float>(loco, (l) => l.EngineBrakeController != null ? l.EngineBrakeController.CurrentValue : 0f));
-        }
     }
 
     public void Update()
@@ -827,13 +807,6 @@ internal class Vigilance
         {
             Reset();
         }
-
-        bool movedControls = false;
-        foreach (IControlTracker control in controls)
-            if (control.HasChanged())
-                movedControls = true;
-        if (doControlsReset && movedControls)
-            Reset();
     }
 
     public void Reset()
