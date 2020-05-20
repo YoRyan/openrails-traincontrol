@@ -65,17 +65,13 @@ namespace ORTS.Scripting.Script
             }
             set
             {
-                if (displayCode == value)
-                    return;
-
-                Message(ConfirmLevel.None, "Cab Signal: " + PulseCodeMapping.ToMessageString(value));
                 if (value < displayCode)
                 {
                     float speed = PulseCodeMapping.ToSpeedMpS(value);
                     bool overspeed = speed != 0 && SpeedMpS() > speed + SpeedLimitMarginMpS;
                     Atc = overspeed ? ATCState.OverspeedCountdown : ATCState.Countdown;
                 }
-                else
+                else if (value > displayCode)
                 {
                     Upgrade = UpgradeState.Play;
                 }
