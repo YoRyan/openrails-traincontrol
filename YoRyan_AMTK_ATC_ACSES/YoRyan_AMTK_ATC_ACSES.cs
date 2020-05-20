@@ -72,8 +72,7 @@ namespace ORTS.Scripting.Script
                 {
                     float speed = PulseCodeMapping.ToSpeedMpS(value);
                     bool overspeed = speed != 0 && SpeedMpS() > speed + SpeedLimitMarginMpS;
-                    if (Atc == ATCState.Off && IsTrainControlEnabled())
-                        Atc = overspeed ? ATCState.OverspeedCountdown : ATCState.Countdown;
+                    Atc = overspeed ? ATCState.OverspeedCountdown : ATCState.Countdown;
                 }
                 else
                 {
@@ -497,6 +496,8 @@ namespace ORTS.Scripting.Script
             if (!IsTrainControlEnabled())
             {
                 if ((Atc == ATCState.Countdown || Atc == ATCState.OverspeedCountdown) && atcTimer.Triggered)
+                    Atc = ATCState.Off;
+                else if (Atc == ATCState.Overspeed)
                     Atc = ATCState.Off;
                 return;
             }
