@@ -450,6 +450,10 @@ namespace ORTS.Scripting.Script
 
         private void HandleNewSignalBlock(object _, SignalBlockEventArgs e)
         {
+            // Move the cab signal out of Restricting.
+            if (DisplayCode == PulseCode.Restricting)
+                DisplayCode = PulseCodeMapping.ToPulseCode(e.Aspect);
+
             blockLengthM = e.BlockLengthM;
         }
 
@@ -480,6 +484,8 @@ namespace ORTS.Scripting.Script
                 PulseCode thisCode = currentCode.GetCurrent();
                 PulseCode changeCode = PulseCodeMapping.ToPriorPulseCode(TCSUtils.NextSignalAspect(this, 0));
                 if (nextSignalM != TCSUtils.NullSignalDistance && nextSignalM <= MinStopZoneLengthM && changeCode == PulseCode.Restricting)
+                    DisplayCode = PulseCode.Restricting;
+                else if (DisplayCode == PulseCode.Restricting)
                     DisplayCode = PulseCode.Restricting;
                 else if (changeZone.Inside())
                     DisplayCode = changeCode;
