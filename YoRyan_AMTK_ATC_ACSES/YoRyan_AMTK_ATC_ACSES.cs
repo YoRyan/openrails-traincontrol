@@ -809,7 +809,7 @@ internal static class PulseCodeMapping
             case PulseCode.Approach:
                 return Aspect.Approach_1;
             case PulseCode.Restricting:
-                return Aspect.Stop;
+                return Aspect.Restricted;
             default:
                 return Aspect.None;
         }
