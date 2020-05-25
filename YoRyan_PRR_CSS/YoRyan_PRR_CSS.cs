@@ -67,10 +67,6 @@ namespace ORTS.Scripting.Script
                     if (Alarm == AlarmState.Off)
                         Alarm = AlarmState.Countdown;
                 }
-                else
-                {
-                    Upgrade = UpgradeState.Play;
-                }
                 displayCode = value;
             }
         }
@@ -223,36 +219,6 @@ namespace ORTS.Scripting.Script
             }
         }
 
-        private enum UpgradeState
-        {
-            Off,
-            Play
-        }
-        private UpgradeState upgrade;
-        private Timer upgradeTimer;
-        private UpgradeState Upgrade
-        {
-            get
-            {
-                return upgrade;
-            }
-            set
-            {
-                if (upgrade == UpgradeState.Off && value == UpgradeState.Play)
-                {
-                    upgradeTimer.Setup(UpgradeSoundSec);
-                    upgradeTimer.Start();
-                    TriggerSoundAlert1();
-                }
-                else if (upgrade == UpgradeState.Play && value == UpgradeState.Off)
-                {
-                    TriggerSoundAlert2();
-                }
-
-                upgrade = value;
-            }
-        }
-
         private enum AlerterState
         {
             Countdown,
@@ -332,8 +298,6 @@ namespace ORTS.Scripting.Script
 
             alarm = AlarmState.Off;
             alarmTimer = new Timer(this);
-            upgrade = UpgradeState.Off;
-            upgradeTimer = new Timer(this);
             alerter = AlerterState.Countdown;
             alerterTimer = new Timer(this);
 
@@ -403,9 +367,6 @@ namespace ORTS.Scripting.Script
         {
             if (blockLengthM == TCSUtils.NullSignalDistance)
                 blockLengthM = TCSUtils.NextSignalDistanceM(this, 0);
-
-            if (Upgrade == UpgradeState.Play && upgradeTimer.Triggered)
-                Upgrade = UpgradeState.Off;
 
             blockTracker.Update();
             UpdateCode();
