@@ -55,6 +55,7 @@ namespace ORTS.Scripting.Script
         private bool doControlsResetAlerter;
         private CurrentCode currentCode;
         private CodeChangeZone changeZone;
+        private Sound upgradeSound;
 
         private PulseCode displayCode = PulseCode.Clear125;
         private PulseCode DisplayCode
@@ -73,7 +74,7 @@ namespace ORTS.Scripting.Script
                 }
                 else if (value > displayCode)
                 {
-                    Upgrade = UpgradeState.Play;
+                    upgradeSound.Play();
                 }
                 displayCode = value;
             }
@@ -307,36 +308,6 @@ namespace ORTS.Scripting.Script
             }
         }
 
-        private enum UpgradeState
-        {
-            Off,
-            Play
-        }
-        private UpgradeState upgrade;
-        private Timer upgradeTimer;
-        private UpgradeState Upgrade
-        {
-            get
-            {
-                return upgrade;
-            }
-            set
-            {
-                if (upgrade == UpgradeState.Off && value == UpgradeState.Play)
-                {
-                    upgradeTimer.Setup(UpgradeSoundS);
-                    upgradeTimer.Start();
-                    TriggerSoundAlert1();
-                }
-                else if (upgrade == UpgradeState.Play && value == UpgradeState.Off)
-                {
-                    TriggerSoundAlert2();
-                }
-
-                upgrade = value;
-            }
-        }
-
         private enum AlerterState
         {
             Countdown,
@@ -413,11 +384,10 @@ namespace ORTS.Scripting.Script
             doControlsResetAlerter = GetBoolParameter("Alerter", "DoControlsReset", true);
             currentCode = new CurrentCode(blockTracker, displayCode);
             changeZone = new CodeChangeZone(this, blockTracker);
+            upgradeSound = new Sound(this, TriggerSoundAlert1, TriggerSoundAlert2, UpgradeSoundS);
 
             atc = ATCState.Off;
             atcTimer = new Timer(this);
-            upgrade = UpgradeState.Off;
-            upgradeTimer = new Timer(this);
             alerter = AlerterState.Countdown;
             alerterTimer = new Timer(this);
 
@@ -481,10 +451,8 @@ namespace ORTS.Scripting.Script
             if (blockLengthM == TCSUtils.NullSignalDistance)
                 blockLengthM = TCSUtils.NextSignalDistanceM(this, 0);
 
-            if (Upgrade == UpgradeState.Play && upgradeTimer.Triggered)
-                Upgrade = UpgradeState.Off;
-
             blockTracker.Update();
+            upgradeSound.Update();
             UpdateCode();
             UpdateAlarm();
             UpdateAlerter();
@@ -930,5 +898,40 @@ internal class Vigilance
     public void Reset()
     {
         timer.Stop();
+    }
+}
+
+internal class Sound
+{
+    private readonly Timer timer;
+    private readonly float durationS;
+    private readonly Action start;
+    private readonly Action stop;
+
+    public Sound(TrainControlSystem tcs, Action startPlaying, Action stopPlaying, float durationS)
+    {
+        timer = new Timer(tcs);
+        start = startPlaying;
+        stop = stopPlaying;
+        this.durationS = durationS;
+    }
+
+    public void Play()
+    {
+        if (!timer.Started)
+        {
+            timer.Setup(durationS);
+            timer.Start();
+            start();
+        }
+    }
+
+    public void Update()
+    {
+        if (timer.Triggered)
+        {
+            timer.Stop();
+            stop();
+        }
     }
 }
