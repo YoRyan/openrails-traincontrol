@@ -25,9 +25,7 @@
  */
 
 using System;
-using System.Collections.Generic;
 using System.Linq;
-using Orts.Simulation.RollingStocks;
 using ORTS.Scripting.Api;
 
 namespace ORTS.Scripting.Script
@@ -35,14 +33,16 @@ namespace ORTS.Scripting.Script
     class YoRyan_BNSF_ATS : TrainControlSystem
     {
         public const float SignalDistanceM = 15f;
-        public const float CountdownSec = 8.0f;
+        public const float CountdownS = 8.0f;
         public float SignalActivateSpeedMpS = 17.8f; // 40 mph
         public float SpeedReductionDistM = 3218f; // 2 mi
         public float SpeedReductionDiffMpS = 8.94f; // 20 mph
 
         private PCSSwitch pcs;
-        private Vigilance vigilance;
-        private bool doControlsResetAlerter;
+        private Alerter alerter;
+        private AlerterSound alerterSound;
+        private Timer alarmTimer;
+        private ISubsystem[] subsystems;
 
         private enum AlarmState
         {
@@ -51,7 +51,6 @@ namespace ORTS.Scripting.Script
             Stop
         }
         private AlarmState alarm;
-        private Timer alarmTimer;
         private AlarmState Alarm
         {
             get
@@ -65,9 +64,9 @@ namespace ORTS.Scripting.Script
                     if (value == AlarmState.Countdown)
                     {
                         Message(Orts.Simulation.ConfirmLevel.None, "ATS: alert");
-                        alarmTimer.Setup(CountdownSec);
+                        alarmTimer.Setup(CountdownS);
                         alarmTimer.Start();
-                        SetVigilanceAlarm(true);
+                        alerterSound.Set();
                     }
                 }
                 else if (alarm == AlarmState.Countdown)
@@ -80,7 +79,7 @@ namespace ORTS.Scripting.Script
                     else if (value == AlarmState.Off)
                     {
                         Message(Orts.Simulation.ConfirmLevel.None, "ATS: acknowledge");
-                        SetVigilanceAlarm(false);
+                        alerterSound.Release();
                     }
                 }
                 else if (alarm == AlarmState.Stop)
@@ -89,7 +88,7 @@ namespace ORTS.Scripting.Script
                     {
                         Message(Orts.Simulation.ConfirmLevel.None, "ATS: acknowledge");
                         pcs.Release();
-                        SetVigilanceAlarm(false);
+                        alerterSound.Release();
                     }
                 }
 
@@ -163,9 +162,14 @@ namespace ORTS.Scripting.Script
             SpeedReductionDiffMpS = getScaledFloatParameter("SpeedReductionDiffMPH", SpeedReductionDiffMpS, mph2mps);
 
             pcs = new PCSSwitch(this);
-            vigilance = new Vigilance(this, GetFloatParameter("Alerter", "CountdownTimeS", 60f));
-            vigilance.Trip += HandleVigilanceTrip;
-            doControlsResetAlerter = GetBoolParameter("Alerter", "DoControlsReset", true);
+            alerterSound = new AlerterSound(this);
+            alerter = new Alerter(
+                this, alerterSound,
+                GetFloatParameter("Alerter", "CountdownTimeS", 60f),
+                GetFloatParameter("Alerter", "AcknowledgeTimeS", CountdownS),
+                GetBoolParameter("Alerter", "DoControlsReset", true),
+                pcs.Trip, pcs.Release);
+            subsystems = new ISubsystem[] { pcs, alerter };
 
             alarm = AlarmState.Off;
             alarmTimer = new Timer(this);
@@ -177,28 +181,12 @@ namespace ORTS.Scripting.Script
 
         public override void HandleEvent(TCSEvent evt, string message)
         {
+            foreach (ISubsystem sub in subsystems)
+                sub.HandleEvent(evt, message);
+
             if (evt == TCSEvent.AlerterPressed)
-            {
                 if (Alarm == AlarmState.Countdown || Alarm == AlarmState.Stop)
                     Alarm = AlarmState.Off;
-
-                vigilance.Reset();
-            }
-
-            if (doControlsResetAlerter)
-            {
-                switch (evt)
-                {
-                    case TCSEvent.ThrottleChanged:
-                    case TCSEvent.TrainBrakeChanged:
-                    case TCSEvent.EngineBrakeChanged:
-                    case TCSEvent.DynamicBrakeChanged:
-                    case TCSEvent.ReverserChanged:
-                    case TCSEvent.GearBoxChanged:
-                        vigilance.Reset();
-                        break;
-                }
-            }
         }
 
         private void HandleVigilanceTrip(object sender, EventArgs _)
@@ -214,57 +202,40 @@ namespace ORTS.Scripting.Script
 
         public override void Update()
         {
-            if (!IsTrainControlEnabled())
+            foreach (ISubsystem sub in subsystems)
+                sub.Update();
+
+            if (IsTrainControlEnabled())
             {
-                pcs.InstantRelease();
-                Alarm = AlarmState.Off;
-                return;
+                if (Alarm == AlarmState.Countdown && alarmTimer.Triggered)
+                    Alarm = AlarmState.Stop;
+
+                Signal = GetSignalState();
+                Speed = GetSpeedState();
             }
-
-            if (Alarm == AlarmState.Countdown && alarmTimer.Triggered)
-                Alarm = AlarmState.Stop;
-
-            pcs.Update();
-            vigilance.Update();
-            Signal = GetSignalState();
-            Speed = GetSpeedState();
+            else
+            {
+                Alarm = AlarmState.Off;
+            }
         }
 
         private SignalState GetSignalState()
         {
-            float distance;
-            try
-            {
-                distance = NextSignalDistanceM(0);
-            }
-            catch (NullReferenceException)
-            {
-                return SignalState.Off;
-            }
-            var aspect = NextSignalAspect(0);
+            var aspect = this.SafeNextSignalAspect(0);
             bool restrictive = aspect != Aspect.Clear_2;
-            return restrictive && AtDistance(distance, SignalDistanceM) && AtsActive() ? SignalState.Alert : SignalState.Off;
+            bool near = AtDistance(this.SafeNextSignalDistanceM(0), SignalDistanceM);
+            return restrictive && near && AtsActive() ? SignalState.Alert : SignalState.Off;
         }
 
         private SpeedState GetSpeedState()
         {
-            float currentLimit;
-            try
-            {
-                currentLimit = CurrentPostSpeedLimitMpS();
-            }
-            catch (NullReferenceException)
-            {
-                currentLimit = 0f;
-            }
-
             const int lookahead = 3;
             SpeedPost[] posts = GetUpcomingSpeedPosts(lookahead);
             Func<int, bool> isNearPost = (forsight) =>
             {
                 SpeedPost post = posts[forsight];
-                float lastLimit = forsight == 0 ? currentLimit : posts[forsight - 1].LimitMpS;
-                bool valid = post.LimitMpS != -1f && post.DistanceM != float.MaxValue;
+                float lastLimit = forsight == 0 ? this.SafeCurrentPostSpeedLimitMpS() : posts[forsight - 1].LimitMpS;
+                bool valid = post.LimitMpS != TrainControlSystemExtensions.NullSpeedLimit && post.DistanceM != TrainControlSystemExtensions.NullPostDistance;
                 return valid && lastLimit - post.LimitMpS >= SpeedReductionDiffMpS && AtDistance(post.DistanceM, SpeedReductionDistM);
             };
             bool nearPost = false;
@@ -284,24 +255,10 @@ namespace ORTS.Scripting.Script
             var posts = new SpeedPost[number];
             foreach (int i in Enumerable.Range(0, number))
             {
-                float distance, limit;
-                try
-                {
-                    distance = NextPostDistanceM(i);
-                }
-                catch (NullReferenceException)
-                {
-                    distance = float.MaxValue;
-                }
-                try
-                {
-                    limit = NextPostSpeedLimitMpS(i);
-                }
-                catch (NullReferenceException)
-                {
-                    limit = -1f;
-                }
-                posts[i] = new SpeedPost { DistanceM = distance, LimitMpS = limit };
+                posts[i] = new SpeedPost {
+                    DistanceM = this.SafeNextPostDistanceM(i),
+                    LimitMpS = this.SafeNextPostSpeedLimitMpS(i)
+                };
             }
             return posts;
         }
@@ -309,28 +266,348 @@ namespace ORTS.Scripting.Script
         private bool AtDistance(float distanceM, float targetDistanceM)
         {
             const float marginM = 3f;
-            return targetDistanceM - marginM / 2 <= distanceM && distanceM <= targetDistanceM + marginM / 2;
+            bool valid = distanceM != TrainControlSystemExtensions.NullSignalDistance;
+            return valid && targetDistanceM - marginM / 2 <= distanceM && distanceM <= targetDistanceM + marginM / 2;
         }
 
         private bool AtsActive()
         {
-            float limit;
-            try
-            {
-                limit = CurrentPostSpeedLimitMpS();
-            }
-            catch (NullReferenceException)
-            {
-                return false;
-            }
-            return limit >= SignalActivateSpeedMpS;
+            return this.SafeCurrentPostSpeedLimitMpS() >= SignalActivateSpeedMpS;
         }
     }
 }
 
-internal class PCSSwitch
+internal interface ISubsystem
 {
-    public const float ReleaseSec = 10f;
+    void HandleEvent(TCSEvent evt, string message);
+    void Update();
+}
+
+internal static class TrainControlSystemExtensions
+{
+    public const float NullSignalDistance = 0f;
+    public const Aspect NullSignalAspect = Aspect.None;
+    public const float NullPostDistance = 0f;
+    public const float NullSpeedLimit = 0f;
+
+    public static float SafeNextSignalDistanceM(this TrainControlSystem tcs, int foresight)
+    {
+        float distanceM;
+        try
+        {
+            distanceM = tcs.NextSignalDistanceM(foresight);
+        }
+        catch (NullReferenceException)
+        {
+            return NullSignalDistance;
+        }
+        return distanceM;
+    }
+
+    public static Aspect SafeNextSignalAspect(this TrainControlSystem tcs, int foresight)
+    {
+        Aspect aspect;
+        try
+        {
+            aspect = tcs.NextSignalAspect(foresight);
+        }
+        catch (NullReferenceException)
+        {
+            return NullSignalAspect;
+        }
+        return aspect;
+    }
+
+    public static float SafeCurrentPostSpeedLimitMpS(this TrainControlSystem tcs)
+    {
+        float speedLimitMpS;
+        try
+        {
+            speedLimitMpS = tcs.CurrentPostSpeedLimitMpS();
+        }
+        catch (NullReferenceException)
+        {
+            return NullSpeedLimit;
+        }
+        return speedLimitMpS;
+    }
+
+    public static float SafeNextPostSpeedLimitMpS(this TrainControlSystem tcs, int forsight)
+    {
+        float speedLimitMpS;
+        try
+        {
+            speedLimitMpS = tcs.NextPostSpeedLimitMpS(forsight);
+        }
+        catch (NullReferenceException)
+        {
+            return NullSpeedLimit;
+        }
+        return speedLimitMpS;
+    }
+
+    public static float SafeNextPostDistanceM(this TrainControlSystem tcs, int forsight)
+    {
+        float postDistanceM;
+        try
+        {
+            postDistanceM = tcs.NextPostDistanceM(forsight);
+        }
+        catch (NullReferenceException)
+        {
+            return NullPostDistance;
+        }
+        return postDistanceM;
+    }
+
+    public static bool IsStopped(this TrainControlSystem tcs)
+    {
+        return tcs.SpeedMpS() < 0.1f;
+    }
+}
+
+internal class Alerter : ISubsystem
+{
+    private readonly TrainControlSystem tcs;
+    private readonly AlerterSound alerterSound;
+    private readonly Action setBrake;
+    private readonly Action releaseBrake;
+    private readonly float acknowledgeTimeS;
+    private readonly bool doControlsReset;
+    private readonly Vigilance vigilance;
+    private readonly Timer timer;
+
+    private enum AlerterState
+    {
+        Countdown,
+        Alarm,
+        Stop
+    }
+    private AlerterState state = AlerterState.Countdown;
+    private AlerterState State
+    {
+        get
+        {
+            return state;
+        }
+        set
+        {
+            if (state == AlerterState.Countdown)
+            {
+                if (value == AlerterState.Alarm)
+                {
+                    alerterSound.Set();
+                    tcs.SetVigilanceAlarmDisplay(true);
+                    timer.Setup(acknowledgeTimeS);
+                    timer.Start();
+                }
+                else if (value == AlerterState.Stop)
+                {
+                    alerterSound.Set();
+                    tcs.SetVigilanceAlarmDisplay(true);
+
+                    setBrake();
+                }
+            }
+            else if (state == AlerterState.Alarm)
+            {
+                if (value == AlerterState.Countdown)
+                {
+                    alerterSound.Release();
+                    tcs.SetVigilanceAlarmDisplay(false);
+                }
+                else if (value == AlerterState.Stop)
+                {
+                    setBrake();
+                }
+            }
+            else if (state == AlerterState.Stop)
+            {
+                if (value == AlerterState.Countdown)
+                {
+                    alerterSound.Release();
+                    tcs.SetVigilanceAlarmDisplay(false);
+
+                    releaseBrake();
+                }
+                else if (value == AlerterState.Alarm)
+                {
+                    alerterSound.Release();
+                    tcs.SetVigilanceAlarmDisplay(false);
+                    timer.Setup(acknowledgeTimeS);
+                    timer.Start();
+
+                    releaseBrake();
+                }
+            }
+
+            state = value;
+        }
+    }
+
+    public Alerter(TrainControlSystem parent, AlerterSound alerterSound, float countdownTimeS, float acknowledgeTimeS, bool doControlsReset, Action setBrake, Action releaseBrake)
+    {
+        tcs = parent;
+        this.alerterSound = alerterSound;
+        this.setBrake = setBrake;
+        this.releaseBrake = releaseBrake;
+        this.acknowledgeTimeS = acknowledgeTimeS;
+        this.doControlsReset = doControlsReset;
+        vigilance = new Vigilance(tcs, countdownTimeS);
+        vigilance.Trip += HandleVigilanceTrip;
+        timer = new Timer(tcs);
+    }
+
+    private void HandleVigilanceTrip(object sender, EventArgs _)
+    {
+        if (State == AlerterState.Countdown)
+            State = AlerterState.Alarm;
+    }
+
+    public void HandleEvent(TCSEvent evt, string message)
+    {
+        vigilance.HandleEvent(evt, message);
+
+        if (evt == TCSEvent.AlerterPressed)
+        {
+            Reset();
+        }
+        else if (doControlsReset)
+        {
+            switch (evt)
+            {
+                case TCSEvent.AlerterPressed:
+                case TCSEvent.ThrottleChanged:
+                case TCSEvent.TrainBrakeChanged:
+                case TCSEvent.EngineBrakeChanged:
+                case TCSEvent.DynamicBrakeChanged:
+                case TCSEvent.ReverserChanged:
+                case TCSEvent.GearBoxChanged:
+                    Reset();
+                    break;
+            }
+        }
+    }
+
+    public void Update()
+    {
+        vigilance.Update();
+
+        if (tcs.IsTrainControlEnabled())
+        {
+            if (State == AlerterState.Alarm && timer.Triggered)
+                State = AlerterState.Stop;
+        }
+        else
+        {
+            State = AlerterState.Countdown;
+        }
+    }
+
+    private void Reset()
+    {
+        vigilance.Reset();
+
+        if (State == AlerterState.Alarm)
+            State = AlerterState.Countdown;
+        else if (State == AlerterState.Stop && tcs.IsStopped())
+            State = AlerterState.Countdown;
+    }
+}
+
+internal class Vigilance : ISubsystem
+{
+    public event EventHandler Trip;
+
+    private readonly TrainControlSystem tcs;
+    private readonly Timer timer;
+    private readonly float countdownTimeS;
+
+    public Vigilance(TrainControlSystem parent, float countdownTimeS)
+    {
+        tcs = parent;
+        timer = new Timer(tcs);
+        this.countdownTimeS = countdownTimeS;
+    }
+
+    public void HandleEvent(TCSEvent evt, string message) { }
+
+    public void Update()
+    {
+        if (!tcs.IsTrainControlEnabled())
+        {
+            timer.Stop();
+            return;
+        }
+
+        if (timer.Triggered)
+        {
+            timer.Stop();
+            Trip.Invoke(this, EventArgs.Empty);
+        }
+        else if (countdownTimeS > 0 && tcs.IsAlerterEnabled() && !tcs.IsStopped())
+        {
+            if (!timer.Started)
+            {
+                timer.Setup(countdownTimeS);
+                timer.Start();
+            }
+        }
+        else
+        {
+            Reset();
+        }
+    }
+
+    public void Reset()
+    {
+        timer.Stop();
+    }
+}
+
+internal abstract class SharedLatch
+{
+    private uint users = 0;
+
+    public void Set()
+    {
+        if (users++ == 0)
+            DoSet();
+    }
+
+    public void Release()
+    {
+        if (--users == 0)
+            DoRelease();
+    }
+
+    protected abstract void DoSet();
+    protected abstract void DoRelease();
+}
+
+internal class AlerterSound : SharedLatch
+{
+    private readonly TrainControlSystem tcs;
+
+    public AlerterSound(TrainControlSystem parent)
+    {
+        tcs = parent;
+    }
+
+    protected override void DoSet()
+    {
+        tcs.SetVigilanceAlarm(true);
+    }
+
+    protected override void DoRelease()
+    {
+        tcs.SetVigilanceAlarm(false);
+    }
+}
+
+internal class PCSSwitch : ISubsystem
+{
+    public const float ReleaseS = 10f;
 
     private readonly TrainControlSystem tcs;
     private readonly Timer suppressed;
@@ -372,7 +649,7 @@ internal class PCSSwitch
                 else if (value == SwitchState.ReleasingSuppress)
                 {
                     tcs.Message(Orts.Simulation.ConfirmLevel.None, "PCS: releasing");
-                    suppressed.Setup(ReleaseSec);
+                    suppressed.Setup(ReleaseS);
                     suppressed.Start();
                 }
             }
@@ -404,8 +681,16 @@ internal class PCSSwitch
         suppressed = new Timer(parent);
     }
 
+    public void HandleEvent(TCSEvent evt, string message) {}
+
     public void Update()
     {
+        if (!tcs.IsTrainControlEnabled())
+        {
+            InstantRelease();
+            return;
+        }
+
         if (State != SwitchState.Released && !tcs.DoesBrakeCutPower())
             tcs.SetThrottleController(0f);
 
@@ -447,47 +732,5 @@ internal class PCSSwitch
     public void InstantRelease()
     {
         State = SwitchState.Released;
-    }
-}
-
-internal class Vigilance
-{
-    public event EventHandler Trip;
-
-    private readonly TrainControlSystem tcs;
-    private readonly Timer timer;
-    private readonly float countdownTimeS;
-
-    public Vigilance(TrainControlSystem parent, float countdownTimeS)
-    {
-        tcs = parent;
-        timer = new Timer(tcs);
-        this.countdownTimeS = countdownTimeS;
-    }
-
-    public void Update()
-    {
-        if (timer.Triggered)
-        {
-            timer.Stop();
-            Trip.Invoke(this, EventArgs.Empty);
-        }
-        else if (countdownTimeS > 0 && tcs.IsAlerterEnabled() && tcs.SpeedMpS() >= 1f)
-        {
-            if (!timer.Started)
-            {
-                timer.Setup(countdownTimeS);
-                timer.Start();
-            }
-        }
-        else
-        {
-            Reset();
-        }
-    }
-
-    public void Reset()
-    {
-        timer.Stop();
     }
 }
