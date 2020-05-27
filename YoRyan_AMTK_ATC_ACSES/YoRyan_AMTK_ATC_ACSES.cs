@@ -49,12 +49,12 @@ namespace ORTS.Scripting.Script
         private BlockTracker blockTracker;
         private PenaltyBrake penaltyBrake;
         private Alerter alerter;
-        private ISubsystem[] subsystems;
-        private CurrentCode currentCode;
+        private Aspect blockAspect;
         private CodeChangeZone changeZone;
         private Sound upgradeSound;
+        private ISubsystem[] subsystems;
 
-        private PulseCode displayCode = PulseCode.Clear125;
+        private PulseCode displayCode;
         private PulseCode DisplayCode
         {
             get
@@ -313,14 +313,15 @@ namespace ORTS.Scripting.Script
             alerter = new Alerter(
                 this,
                 GetFloatParameter("Alerter", "CountdownTimeS", 60f),
-                GetFloatParameter("Alerter", "AcknowledgeTimeS", 10f),
+                GetFloatParameter("Alerter", "AcknowledgeTimeS", CountdownS),
                 GetBoolParameter("Alerter", "DoControlsReset", true),
                 penaltyBrake.Set, penaltyBrake.Release);
-            currentCode = new CurrentCode(blockTracker, displayCode);
             changeZone = new CodeChangeZone(this, blockTracker);
             upgradeSound = new Sound(this, TriggerSoundAlert1, TriggerSoundAlert2, UpgradeSoundS);
             subsystems = new ISubsystem[] { blockTracker, alerter, upgradeSound };
 
+            blockAspect = Aspect.Clear_2;
+            displayCode = PulseCodeMapping.ToPulseCode(blockAspect);
             atc = ATCState.Off;
             atcTimer = new Timer(this);
 
@@ -345,11 +346,12 @@ namespace ORTS.Scripting.Script
 
         private void HandleNewSignalBlock(object _, SignalBlockEventArgs e)
         {
+            blockAspect = e.Aspect;
+            blockLengthM = e.BlockLengthM;
+
             // Move the cab signal out of Restricting.
             if (DisplayCode == PulseCode.Restricting)
-                DisplayCode = PulseCodeMapping.ToPulseCode(e.Aspect);
-
-            blockLengthM = e.BlockLengthM;
+                DisplayCode = PulseCodeMapping.ToPulseCode(blockAspect);
         }
 
         public override void SetEmergency(bool emergency)
@@ -374,7 +376,6 @@ namespace ORTS.Scripting.Script
             if (GameTime() >= 1f)
             {
                 float nextSignalM = this.SafeNextSignalDistanceM(0);
-                PulseCode thisCode = currentCode.GetCurrent();
                 PulseCode changeCode = PulseCodeMapping.ToPriorPulseCode(this.SafeNextSignalAspect(0));
                 if (nextSignalM != TrainControlSystemExtensions.NullSignalDistance && nextSignalM <= MinStopZoneLengthM && changeCode == PulseCode.Restricting)
                     DisplayCode = PulseCode.Restricting;
@@ -383,7 +384,7 @@ namespace ORTS.Scripting.Script
                 else if (changeZone.Inside())
                     DisplayCode = changeCode;
                 else
-                    DisplayCode = thisCode;
+                    DisplayCode = PulseCodeMapping.ToPulseCode(blockAspect);
             }
 
             SetNextSignalAspect(PulseCodeMapping.ToCabDisplay(DisplayCode));
@@ -777,29 +778,6 @@ internal class CodeChangeZone
         blockLengthM = e.BlockLengthM;
         codeChangeM = e.BlockLengthM / 2;
         trailingSwitchM = tcs.NextTrailingDivergingSwitchDistanceM(e.BlockLengthM);
-    }
-}
-
-internal class CurrentCode
-{
-    private PulseCode code;
-
-    public CurrentCode(BlockTracker blockTracker, PulseCode initCode)
-    {
-        blockTracker.NewSignalBlock += HandleNewSignalBlock;
-        code = initCode;
-    }
-
-    public PulseCode GetCurrent()
-    {
-        return code;
-    }
-
-    public void HandleNewSignalBlock(object _, SignalBlockEventArgs e)
-    {
-        PulseCode newCode = PulseCodeMapping.ToPulseCode(e.Aspect);
-        Console.WriteLine("ATC: {0} -> {1}", code, newCode);
-        code = newCode;
     }
 }
 
