@@ -42,6 +42,7 @@ namespace ORTS.Scripting.Script
 
         private PCSSwitch pcs;
         private Vigilance vigilance;
+        private bool doControlsResetAlerter;
 
         private enum AlarmState
         {
@@ -162,8 +163,9 @@ namespace ORTS.Scripting.Script
             SpeedReductionDiffMpS = getScaledFloatParameter("SpeedReductionDiffMPH", SpeedReductionDiffMpS, mph2mps);
 
             pcs = new PCSSwitch(this);
-            vigilance = new Vigilance(this, GetFloatParameter("Alerter", "CountdownTimeS", 60f), GetBoolParameter("Alerter", "DoControlsReset", true));
+            vigilance = new Vigilance(this, GetFloatParameter("Alerter", "CountdownTimeS", 60f));
             vigilance.Trip += HandleVigilanceTrip;
+            doControlsResetAlerter = GetBoolParameter("Alerter", "DoControlsReset", true);
 
             alarm = AlarmState.Off;
             alarmTimer = new Timer(this);
@@ -181,6 +183,21 @@ namespace ORTS.Scripting.Script
                     Alarm = AlarmState.Off;
 
                 vigilance.Reset();
+            }
+
+            if (doControlsResetAlerter)
+            {
+                switch (evt)
+                {
+                    case TCSEvent.ThrottleChanged:
+                    case TCSEvent.TrainBrakeChanged:
+                    case TCSEvent.EngineBrakeChanged:
+                    case TCSEvent.DynamicBrakeChanged:
+                    case TCSEvent.ReverserChanged:
+                    case TCSEvent.GearBoxChanged:
+                        vigilance.Reset();
+                        break;
+                }
             }
         }
 
@@ -438,52 +455,14 @@ internal class Vigilance
     public event EventHandler Trip;
 
     private readonly TrainControlSystem tcs;
-    private readonly List<IControlTracker> controls = new List<IControlTracker>();
     private readonly Timer timer;
     private readonly float countdownTimeS;
-    private readonly bool doControlsReset;
 
-    private interface IControlTracker
-    {
-        bool HasChanged();
-    }
-    private class ControlTracker<T> : IControlTracker where T : IEquatable<T>
-    {
-        private readonly MSTSLocomotive loco;
-        private readonly Func<MSTSLocomotive, T> readValue;
-        private IEquatable<T> state;
-
-        public ControlTracker(MSTSLocomotive loco, Func<MSTSLocomotive, T> readValue)
-        {
-            this.loco = loco;
-            this.readValue = readValue;
-            state = readValue(loco);
-        }
-
-        public bool HasChanged()
-        {
-            IEquatable<T> newState = readValue(loco);
-            bool changed = !newState.Equals(state);
-            state = newState;
-            return changed;
-        }
-    }
-
-    public Vigilance(TrainControlSystem parent, float countdownTimeS, bool doControlsReset)
+    public Vigilance(TrainControlSystem parent, float countdownTimeS)
     {
         tcs = parent;
         timer = new Timer(tcs);
         this.countdownTimeS = countdownTimeS;
-        this.doControlsReset = doControlsReset;
-
-        if (doControlsReset)
-        {
-            var loco = tcs.Locomotive();
-            controls.Add(new ControlTracker<float>(loco, (l) => l.ThrottleController.CurrentValue));
-            controls.Add(new ControlTracker<float>(loco, (l) => l.DynamicBrakeController.CurrentValue));
-            controls.Add(new ControlTracker<float>(loco, (l) => l.TrainBrakeController.CurrentValue));
-            controls.Add(new ControlTracker<float>(loco, (l) => l.EngineBrakeController.CurrentValue));
-        }
     }
 
     public void Update()
@@ -505,13 +484,6 @@ internal class Vigilance
         {
             Reset();
         }
-
-        bool movedControls = false;
-        foreach (IControlTracker control in controls)
-            if (control.HasChanged())
-                movedControls = true;
-        if (doControlsReset && movedControls)
-            Reset();
     }
 
     public void Reset()
