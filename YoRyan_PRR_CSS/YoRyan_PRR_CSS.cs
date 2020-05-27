@@ -25,9 +25,7 @@
  */
 
 using System;
-using System.Collections.Generic;
 using Orts.Simulation;
-using Orts.Simulation.RollingStocks;
 using ORTS.Scripting.Api;
 
 namespace ORTS.Scripting.Script
@@ -40,13 +38,13 @@ namespace ORTS.Scripting.Script
         public const float MinStopZoneLengthM = 457f; // 1500 ft
 
         private bool hasSpeedControl;
-        private float blockLengthM = TCSUtils.NullSignalDistance;
+        private float blockLengthM = TrainControlSystemExtensions.NullSignalDistance;
 
         private BlockTracker blockTracker;
         private PenaltyBrake penaltyBrake;
-        private Vigilance vigilance;
-        private bool doControlsResetAlerter;
-        private CurrentCode currentCode;
+        private Alerter alerter;
+        private ISubsystem[] subsystems;
+        private Aspect blockAspect;
         private CodeChangeZone changeZone;
 
         private PulseCode displayCode;
@@ -219,88 +217,24 @@ namespace ORTS.Scripting.Script
             }
         }
 
-        private enum AlerterState
-        {
-            Countdown,
-            Alert,
-            Stop
-        }
-        private AlerterState alerter;
-        private Timer alerterTimer;
-        private AlerterState Alerter
-        {
-            get
-            {
-                return alerter;
-            }
-            set
-            {
-                if (alerter == AlerterState.Countdown)
-                {
-                    if (value == AlerterState.Alert)
-                    {
-                        SetVigilanceAlarm(true);
-                        SetVigilanceAlarmDisplay(true);
-                        alerterTimer.Setup(CountdownSec);
-                        alerterTimer.Start();
-                    }
-                    else if (value == AlerterState.Stop)
-                    {
-                        SetVigilanceAlarm(true);
-                        SetVigilanceAlarmDisplay(true);
-                        penaltyBrake.Set();
-                    }
-                }
-                else if (alerter == AlerterState.Alert)
-                {
-                    if (value == AlerterState.Countdown)
-                    {
-                        SetVigilanceAlarm(false);
-                        SetVigilanceAlarmDisplay(false);
-                    }
-                    else if (value == AlerterState.Stop)
-                    {
-                        penaltyBrake.Set();
-                    }
-                }
-                else if (alerter == AlerterState.Stop)
-                {
-                    if (value == AlerterState.Countdown)
-                    {
-                        SetVigilanceAlarm(false);
-                        SetVigilanceAlarmDisplay(false);
-                        penaltyBrake.Release();
-                    }
-                    else if (value == AlerterState.Alert)
-                    {
-                        SetVigilanceAlarm(false);
-                        SetVigilanceAlarmDisplay(false);
-                        penaltyBrake.Release();
-                        alerterTimer.Setup(CountdownSec);
-                        alerterTimer.Start();
-                    }
-                }
-
-                alerter = value;
-            }
-        }
-
         public override void Initialize()
         {
             blockTracker = new BlockTracker(this);
             blockTracker.NewSignalBlock += HandleNewSignalBlock;
             penaltyBrake = new PenaltyBrake(this);
-            vigilance = new Vigilance(this, GetFloatParameter("Alerter", "CountdownTimeS", 60f));
-            vigilance.Trip += HandleVigilanceTrip;
-            doControlsResetAlerter = GetBoolParameter("Alerter", "DoControlsReset", false);
-            currentCode = new CurrentCode(blockTracker, PulseCode.Clear);
+            alerter = new Alerter(
+                this,
+                GetFloatParameter("Alerter", "CountdownTimeS", 60f),
+                GetFloatParameter("Alerter", "AcknowledgeTimeS", CountdownSec),
+                GetBoolParameter("Alerter", "DoControlsReset", false),
+                penaltyBrake.Set, penaltyBrake.Release);
             changeZone = new CodeChangeZone(this, blockTracker);
+            subsystems = new ISubsystem[] { blockTracker, alerter };
 
             alarm = AlarmState.Off;
             alarmTimer = new Timer(this);
-            alerter = AlerterState.Countdown;
-            alerterTimer = new Timer(this);
-
+            blockAspect = Aspect.Clear_2;
+            displayCode = PulseCodeMapping.ToPulseCode(blockAspect);
             hasSpeedControl = GetBoolParameter("CSS", "SpeedControl", true);
 
             Console.WriteLine("CSS initialized!");
@@ -308,54 +242,32 @@ namespace ORTS.Scripting.Script
 
         public override void HandleEvent(TCSEvent evt, string message)
         {
+            foreach (ISubsystem sub in subsystems)
+                sub.HandleEvent(evt, message);
+
             if (evt == TCSEvent.AlerterPressed)
             {
                 if (Alarm == AlarmState.Countdown)
                 {
-
                     float speed = PulseCodeMapping.ToSpeedMpS(DisplayCode);
                     bool overspeed = speed != 0 && SpeedMpS() > speed + SpeedLimitMarginMpS;
                     Alarm = overspeed ? AlarmState.Overspeed : AlarmState.Off;
                 }
-                else if (Alarm == AlarmState.Stop && SpeedMpS() < 0.1f)
+                else if (Alarm == AlarmState.Stop && this.IsStopped())
                 {
                     Alarm = AlarmState.Off;
                 }
-
-                Alerter = AlerterState.Countdown;
-                vigilance.Reset();
             }
-
-            if (doControlsResetAlerter)
-            {
-                switch (evt)
-                {
-                    case TCSEvent.ThrottleChanged:
-                    case TCSEvent.TrainBrakeChanged:
-                    case TCSEvent.EngineBrakeChanged:
-                    case TCSEvent.DynamicBrakeChanged:
-                    case TCSEvent.ReverserChanged:
-                    case TCSEvent.GearBoxChanged:
-                        Alerter = AlerterState.Countdown;
-                        vigilance.Reset();
-                        break;
-                }
-            }
-        }
-
-        private void HandleVigilanceTrip(object sender, EventArgs _)
-        {
-            if (Alerter == AlerterState.Countdown)
-                Alerter = AlerterState.Alert;
         }
 
         private void HandleNewSignalBlock(object _, SignalBlockEventArgs e)
         {
+            blockAspect = e.Aspect;
+            blockLengthM = e.BlockLengthM;
+
             // Move the cab signal out of Restricting.
             if (DisplayCode == PulseCode.Restricting)
-                DisplayCode = PulseCodeMapping.ToPulseCode(e.Aspect);
-
-            blockLengthM = e.BlockLengthM;
+                DisplayCode = PulseCodeMapping.ToPulseCode(blockAspect);
         }
 
         public override void SetEmergency(bool emergency)
@@ -365,28 +277,28 @@ namespace ORTS.Scripting.Script
 
         public override void Update()
         {
-            if (blockLengthM == TCSUtils.NullSignalDistance)
-                blockLengthM = TCSUtils.NextSignalDistanceM(this, 0);
+            foreach (ISubsystem sub in subsystems)
+                sub.Update();
 
-            blockTracker.Update();
+            if (blockLengthM == TrainControlSystemExtensions.NullSignalDistance)
+                blockLengthM = this.SafeNextSignalDistanceM(0);
+
             UpdateCode();
             UpdateAlarm();
-            UpdateAlerter();
         }
 
         private void UpdateCode()
         {
-            float nextSignalM = TCSUtils.NextSignalDistanceM(this, 0);
-            PulseCode thisCode = currentCode.GetCurrent();
-            PulseCode changeCode = PulseCodeMapping.ToPriorPulseCode(TCSUtils.NextSignalAspect(this, 0));
-            if (nextSignalM != TCSUtils.NullSignalDistance && nextSignalM <= MinStopZoneLengthM && changeCode == PulseCode.Restricting)
+            float nextSignalM = this.SafeNextSignalDistanceM(0);
+            PulseCode changeCode = PulseCodeMapping.ToPriorPulseCode(this.SafeNextSignalAspect(0));
+            if (nextSignalM != TrainControlSystemExtensions.NullSignalDistance && nextSignalM <= MinStopZoneLengthM && changeCode == PulseCode.Restricting)
                 DisplayCode = PulseCode.Restricting;
             else if (DisplayCode == PulseCode.Restricting)
                 DisplayCode = PulseCode.Restricting;
             else if (changeZone.Inside())
                 DisplayCode = changeCode;
             else
-                DisplayCode = thisCode;
+                DisplayCode = PulseCodeMapping.ToPulseCode(blockAspect);
 
             SetNextSignalAspect(PulseCodeMapping.ToCabDisplay(DisplayCode));
             SetNextSpeedLimitMpS(PulseCodeMapping.ToSpeedMpS(DisplayCode));
@@ -431,21 +343,248 @@ namespace ORTS.Scripting.Script
                     Alarm = AlarmState.Overspeed;
             }
         }
+    }
+}
 
-        private void UpdateAlerter()
+internal interface ISubsystem
+{
+    void HandleEvent(TCSEvent evt, string message);
+    void Update();
+}
+
+internal static class TrainControlSystemExtensions
+{
+    public const float NullSignalDistance = 0f;
+    public const Aspect NullSignalAspect = Aspect.None;
+
+    public static float SafeNextSignalDistanceM(this TrainControlSystem tcs, int foresight)
+    {
+        float distanceM;
+        try
         {
-            if (IsTrainControlEnabled())
-            {
-                vigilance.Update();
+            distanceM = tcs.NextSignalDistanceM(foresight);
+        }
+        catch (NullReferenceException)
+        {
+            return NullSignalDistance;
+        }
+        return distanceM;
+    }
 
-                if (Alerter == AlerterState.Alert && alerterTimer.Triggered)
-                    Alerter = AlerterState.Stop;
-            }
-            else
+    public static Aspect SafeNextSignalAspect(this TrainControlSystem tcs, int foresight)
+    {
+        Aspect aspect;
+        try
+        {
+            aspect = tcs.NextSignalAspect(foresight);
+        }
+        catch (NullReferenceException)
+        {
+            return NullSignalAspect;
+        }
+        return aspect;
+    }
+
+    public static bool IsStopped(this TrainControlSystem tcs)
+    {
+        return tcs.SpeedMpS() < 0.1f;
+    }
+}
+
+internal class Alerter : ISubsystem
+{
+    private readonly TrainControlSystem tcs;
+    private readonly Action setBrake;
+    private readonly Action releaseBrake;
+    private readonly float acknowledgeTimeS;
+    private readonly bool doControlsReset;
+    private readonly Vigilance vigilance;
+    private readonly Timer timer;
+
+    private enum AlerterState
+    {
+        Countdown,
+        Alarm,
+        Stop
+    }
+    private AlerterState state = AlerterState.Countdown;
+    private AlerterState State
+    {
+        get
+        {
+            return state;
+        }
+        set
+        {
+            if (state == AlerterState.Countdown)
             {
-                Alerter = AlerterState.Countdown;
+                if (value == AlerterState.Alarm)
+                {
+                    tcs.SetVigilanceAlarm(true);
+                    tcs.SetVigilanceAlarmDisplay(true);
+                    timer.Setup(acknowledgeTimeS);
+                    timer.Start();
+                }
+                else if (value == AlerterState.Stop)
+                {
+                    tcs.SetVigilanceAlarm(true);
+                    tcs.SetVigilanceAlarmDisplay(true);
+
+                    setBrake();
+                }
+            }
+            else if (state == AlerterState.Alarm)
+            {
+                if (value == AlerterState.Countdown)
+                {
+                    tcs.SetVigilanceAlarm(false);
+                    tcs.SetVigilanceAlarmDisplay(false);
+                }
+                else if (value == AlerterState.Stop)
+                {
+                    setBrake();
+                }
+            }
+            else if (state == AlerterState.Stop)
+            {
+                if (value == AlerterState.Countdown)
+                {
+                    tcs.SetVigilanceAlarm(false);
+                    tcs.SetVigilanceAlarmDisplay(false);
+
+                    releaseBrake();
+                }
+                else if (value == AlerterState.Alarm)
+                {
+                    tcs.SetVigilanceAlarm(false);
+                    tcs.SetVigilanceAlarmDisplay(false);
+                    timer.Setup(acknowledgeTimeS);
+                    timer.Start();
+
+                    releaseBrake();
+                }
+            }
+
+            state = value;
+        }
+    }
+
+    public Alerter(TrainControlSystem parent, float countdownTimeS, float acknowledgeTimeS, bool doControlsReset, Action setBrake, Action releaseBrake)
+    {
+        tcs = parent;
+        this.setBrake = setBrake;
+        this.releaseBrake = releaseBrake;
+        this.acknowledgeTimeS = acknowledgeTimeS;
+        this.doControlsReset = doControlsReset;
+        vigilance = new Vigilance(tcs, countdownTimeS);
+        vigilance.Trip += HandleVigilanceTrip;
+        timer = new Timer(tcs);
+    }
+
+    private void HandleVigilanceTrip(object sender, EventArgs _)
+    {
+        if (State == AlerterState.Countdown)
+            State = AlerterState.Alarm;
+    }
+
+    public void HandleEvent(TCSEvent evt, string message)
+    {
+        vigilance.HandleEvent(evt, message);
+
+        if (evt == TCSEvent.AlerterPressed)
+        {
+            Reset();
+        }
+        else if (doControlsReset)
+        {
+            switch (evt)
+            {
+                case TCSEvent.AlerterPressed:
+                case TCSEvent.ThrottleChanged:
+                case TCSEvent.TrainBrakeChanged:
+                case TCSEvent.EngineBrakeChanged:
+                case TCSEvent.DynamicBrakeChanged:
+                case TCSEvent.ReverserChanged:
+                case TCSEvent.GearBoxChanged:
+                    Reset();
+                    break;
             }
         }
+    }
+
+    public void Update()
+    {
+        vigilance.Update();
+
+        if (tcs.IsTrainControlEnabled())
+        {
+            if (State == AlerterState.Alarm && timer.Triggered)
+                State = AlerterState.Stop;
+        }
+        else
+        {
+            State = AlerterState.Countdown;
+        }
+    }
+
+    private void Reset()
+    {
+        vigilance.Reset();
+
+        if (State == AlerterState.Alarm)
+            State = AlerterState.Countdown;
+        else if (State == AlerterState.Stop && tcs.IsStopped())
+            State = AlerterState.Countdown;
+    }
+}
+
+internal class Vigilance : ISubsystem
+{
+    public event EventHandler Trip;
+
+    private readonly TrainControlSystem tcs;
+    private readonly Timer timer;
+    private readonly float countdownTimeS;
+
+    public Vigilance(TrainControlSystem parent, float countdownTimeS)
+    {
+        tcs = parent;
+        timer = new Timer(tcs);
+        this.countdownTimeS = countdownTimeS;
+    }
+
+    public void HandleEvent(TCSEvent evt, string message) { }
+
+    public void Update()
+    {
+        if (!tcs.IsTrainControlEnabled())
+        {
+            timer.Stop();
+            return;
+        }
+
+        if (timer.Triggered)
+        {
+            timer.Stop();
+            Trip.Invoke(this, EventArgs.Empty);
+        }
+        else if (countdownTimeS > 0 && tcs.IsAlerterEnabled() && !tcs.IsStopped())
+        {
+            if (!timer.Started)
+            {
+                timer.Setup(countdownTimeS);
+                timer.Start();
+            }
+        }
+        else
+        {
+            Reset();
+        }
+    }
+
+    public void Reset()
+    {
+        timer.Stop();
     }
 }
 
@@ -461,7 +600,7 @@ internal class SignalBlockEventArgs : EventArgs
     }
 }
 
-internal class BlockTracker
+internal class BlockTracker : ISubsystem
 {
     public event EventHandler<SignalBlockEventArgs> NewSignalBlock;
     private readonly TrainControlSystem tcs;
@@ -482,7 +621,7 @@ internal class BlockTracker
         {
             if (signal == SignalPosition.Far && value == SignalPosition.Near)
             {
-                var e = new SignalBlockEventArgs(TCSUtils.NextSignalAspect(tcs, 0), TCSUtils.NextSignalDistanceM(tcs, 1));
+                var e = new SignalBlockEventArgs(tcs.SafeNextSignalAspect(0), tcs.SafeNextSignalDistanceM(1));
                 NewSignalBlock.Invoke(this, e);
             }
 
@@ -495,10 +634,12 @@ internal class BlockTracker
         tcs = parent;
     }
 
+    public void HandleEvent(TCSEvent evt, string message) { }
+
     public void Update()
     {
-        float distanceM = TCSUtils.NextSignalDistanceM(tcs, 0);
-        Signal = distanceM != TCSUtils.NullSignalDistance && distanceM < 3f ? SignalPosition.Near : SignalPosition.Far;
+        float distanceM = tcs.SafeNextSignalDistanceM(0);
+        Signal = distanceM != TrainControlSystemExtensions.NullSignalDistance && distanceM < 3f ? SignalPosition.Near : SignalPosition.Far;
     }
 }
 
@@ -524,8 +665,8 @@ internal class CodeChangeZone
 
     public bool Inside()
     {
-        float nextDistanceM = TCSUtils.NextSignalDistanceM(tcs, 0);
-        if (nextDistanceM == TCSUtils.NullSignalDistance)
+        float nextDistanceM = tcs.SafeNextSignalDistanceM(0);
+        if (nextDistanceM == TrainControlSystemExtensions.NullSignalDistance)
             return false;
         else if (trailingSwitchM != float.MaxValue)
             return nextDistanceM < Math.Max(blockLengthM - codeChangeM, blockLengthM - trailingSwitchM);
@@ -538,40 +679,6 @@ internal class CodeChangeZone
         blockLengthM = e.BlockLengthM;
         codeChangeM = e.BlockLengthM / 2;
         trailingSwitchM = tcs.NextTrailingDivergingSwitchDistanceM(e.BlockLengthM);
-    }
-}
-
-internal static class TCSUtils
-{
-    public const float NullSignalDistance = 0f;
-    public const Aspect NullSignalAspect = Aspect.None;
-
-    public static float NextSignalDistanceM(TrainControlSystem tcs, int foresight)
-    {
-        float distanceM;
-        try
-        {
-            distanceM = tcs.NextSignalDistanceM(foresight);
-        }
-        catch (NullReferenceException)
-        {
-            return NullSignalDistance;
-        }
-        return distanceM;
-    }
-
-    public static Aspect NextSignalAspect(TrainControlSystem tcs, int foresight)
-    {
-        Aspect aspect;
-        try
-        {
-            aspect = tcs.NextSignalAspect(foresight);
-        }
-        catch (NullReferenceException)
-        {
-            return NullSignalAspect;
-        }
-        return aspect;
     }
 }
 
@@ -680,33 +787,10 @@ internal static class PulseCodeMapping
     }
 }
 
-internal class CurrentCode
-{
-    private PulseCode code;
-
-    public CurrentCode(BlockTracker blockTracker, PulseCode initCode)
-    {
-        blockTracker.NewSignalBlock += HandleNewSignalBlock;
-        code = initCode;
-    }
-
-    public PulseCode GetCurrent()
-    {
-        return code;
-    }
-
-    public void HandleNewSignalBlock(object _, SignalBlockEventArgs e)
-    {
-        PulseCode newCode = PulseCodeMapping.ToPulseCode(e.Aspect);
-        Console.WriteLine("CSS: {0} -> {1}", code, newCode);
-        code = newCode;
-    }
-}
-
 internal class PenaltyBrake
 {
     private readonly TrainControlSystem tcs;
-    private bool set = false;
+    private uint applications = 0;
 
     public PenaltyBrake(TrainControlSystem parent)
     {
@@ -715,63 +799,19 @@ internal class PenaltyBrake
 
     public void Set()
     {
-        if (!set)
+        if (applications++ == 0)
         {
             tcs.SetFullBrake(true);
             tcs.SetPenaltyApplicationDisplay(true);
-            set = true;
         }
     }
 
     public void Release()
     {
-        if (set)
+        if (--applications == 0)
         {
             tcs.SetFullBrake(false);
             tcs.SetPenaltyApplicationDisplay(false);
-            set = false;
         }
-    }
-}
-
-internal class Vigilance
-{
-    public event EventHandler Trip;
-
-    private readonly TrainControlSystem tcs;
-    private readonly Timer timer;
-    private readonly float countdownTimeS;
-
-    public Vigilance(TrainControlSystem parent, float countdownTimeS)
-    {
-        tcs = parent;
-        timer = new Timer(tcs);
-        this.countdownTimeS = countdownTimeS;
-    }
-
-    public void Update()
-    {
-        if (timer.Triggered)
-        {
-            timer.Stop();
-            Trip.Invoke(this, EventArgs.Empty);
-        }
-        else if (countdownTimeS > 0 && tcs.IsAlerterEnabled() && tcs.SpeedMpS() >= 1f)
-        {
-            if (!timer.Started)
-            {
-                timer.Setup(countdownTimeS);
-                timer.Start();
-            }
-        }
-        else
-        {
-            Reset();
-        }
-    }
-
-    public void Reset()
-    {
-        timer.Stop();
     }
 }
