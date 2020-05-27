@@ -911,32 +911,45 @@ internal static class PulseCodeMapping
     }
 }
 
-internal class PenaltyBrake
+internal abstract class SharedLatch
+{
+    private uint users = 0;
+
+    public void Set()
+    {
+        if (users++ == 0)
+            DoSet();
+    }
+
+    public void Release()
+    {
+        if (--users == 0)
+            DoRelease();
+    }
+
+    protected abstract void DoSet();
+    protected abstract void DoRelease();
+}
+
+internal class PenaltyBrake : SharedLatch
 {
     private readonly TrainControlSystem tcs;
-    private uint applications = 0;
 
     public PenaltyBrake(TrainControlSystem parent)
     {
         tcs = parent;
     }
 
-    public void Set()
+    protected override void DoSet()
     {
-        if (applications++ == 0)
-        {
-            tcs.SetFullBrake(true);
-            tcs.SetPenaltyApplicationDisplay(true);
-        }
+        tcs.SetFullBrake(true);
+        tcs.SetPenaltyApplicationDisplay(true);
     }
 
-    public void Release()
+    protected override void DoRelease()
     {
-        if (--applications == 0)
-        {
-            tcs.SetFullBrake(false);
-            tcs.SetPenaltyApplicationDisplay(false);
-        }
+        tcs.SetFullBrake(false);
+        tcs.SetPenaltyApplicationDisplay(false);
     }
 }
 
