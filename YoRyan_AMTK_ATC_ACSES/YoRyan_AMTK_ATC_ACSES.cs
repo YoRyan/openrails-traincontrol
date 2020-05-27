@@ -321,7 +321,7 @@ namespace ORTS.Scripting.Script
             subsystems = new ISubsystem[] { blockTracker, alerter, upgradeSound };
 
             blockAspect = Aspect.Clear_2;
-            displayCode = PulseCodeMapping.ToPulseCode(blockAspect);
+            displayCode = PulseCodeMapping.ToPulseCode(blockAspect, 0f);
             atc = ATCState.Off;
             atcTimer = new Timer(this);
 
@@ -351,7 +351,7 @@ namespace ORTS.Scripting.Script
 
             // Move the cab signal out of Restricting.
             if (DisplayCode == PulseCode.Restricting)
-                DisplayCode = PulseCodeMapping.ToPulseCode(blockAspect);
+                DisplayCode = PulseCodeMapping.ToPulseCode(blockAspect, TrainSpeedLimitMpS());
         }
 
         public override void SetEmergency(bool emergency)
@@ -376,7 +376,8 @@ namespace ORTS.Scripting.Script
             if (GameTime() >= 1f)
             {
                 float nextSignalM = this.SafeNextSignalDistanceM(0);
-                PulseCode changeCode = PulseCodeMapping.ToPriorPulseCode(this.SafeNextSignalAspect(0));
+                float speedLimitMpS = TrainSpeedLimitMpS();
+                PulseCode changeCode = PulseCodeMapping.ToPriorPulseCode(this.SafeNextSignalAspect(0), speedLimitMpS);
                 if (nextSignalM != TrainControlSystemExtensions.NullSignalDistance && nextSignalM <= MinStopZoneLengthM && changeCode == PulseCode.Restricting)
                     DisplayCode = PulseCode.Restricting;
                 else if (DisplayCode == PulseCode.Restricting)
@@ -384,7 +385,7 @@ namespace ORTS.Scripting.Script
                 else if (changeZone.Inside())
                     DisplayCode = changeCode;
                 else
-                    DisplayCode = PulseCodeMapping.ToPulseCode(blockAspect);
+                    DisplayCode = PulseCodeMapping.ToPulseCode(blockAspect, speedLimitMpS);
             }
 
             SetNextSignalAspect(PulseCodeMapping.ToCabDisplay(DisplayCode));
@@ -796,12 +797,14 @@ internal enum PulseCode
 
 internal static class PulseCodeMapping
 {
-    public static PulseCode ToPulseCode(Aspect aspect)
+    private const float mph2mps = 0.44704f;
+
+    public static PulseCode ToPulseCode(Aspect aspect, float effectiveSpeedLimitMpS)
     {
         switch (aspect)
         {
             case Aspect.Clear_2:
-                return PulseCode.Clear125;
+                return effectiveSpeedLimitMpS > 125 * mph2mps ? PulseCode.Clear150 : PulseCode.Clear125;
             case Aspect.Clear_1:
             case Aspect.Approach_2:
                 return PulseCode.ApproachMedium;
@@ -817,13 +820,14 @@ internal static class PulseCodeMapping
         }
     }
 
-    public static PulseCode ToPriorPulseCode(Aspect aspect)
+    public static PulseCode ToPriorPulseCode(Aspect aspect, float speedLimitMpS)
     {
         switch (aspect)
         {
             case Aspect.Clear_2:
+                return speedLimitMpS > 125 * mph2mps ? PulseCode.Clear150 : PulseCode.Clear125;
             case Aspect.Approach_2:
-                return PulseCode.Clear125;
+                return speedLimitMpS > 125 * mph2mps ? PulseCode.CabSpeed80 : PulseCode.Clear125;
             case Aspect.Clear_1:
             case Aspect.Approach_3:
             case Aspect.Approach_1:
