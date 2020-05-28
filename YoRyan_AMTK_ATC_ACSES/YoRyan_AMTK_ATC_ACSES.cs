@@ -62,7 +62,7 @@ namespace ORTS.Scripting.Script
             };
             subsystems = new ISubsystem[] { alerter, atc, acses };
 
-            combineSpeedDisplays = !GetBoolParameter("ACSES", "IndependentSpeedDisplay", false);
+            combineSpeedDisplays = !GetBoolParameter("ACSES", "UseSPEEDLIMIT", false);
 
             Console.WriteLine("Amtrak safety systems initialized!");
         }
