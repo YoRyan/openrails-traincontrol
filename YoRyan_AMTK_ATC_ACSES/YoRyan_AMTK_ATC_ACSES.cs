@@ -84,7 +84,7 @@ namespace ORTS.Scripting.Script
                 sub.Update();
 
             SetNextSignalAspect(atc.CabAspect);
-            if (combineSpeedDisplays)
+            if (combineSpeedDisplays && acses.Enabled)
             {
                 SetNextSpeedLimitMpS(Math.Min(atc.SpeedLimitMpS, acses.SpeedLimitMpS));
                 SetCurrentSpeedLimitMpS(0f);
