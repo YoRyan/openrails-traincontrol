@@ -32,326 +32,32 @@ namespace ORTS.Scripting.Script
 {
     class YoRyan_AMTK_ATC_ACSES : TrainControlSystem
     {
-        public const float CountdownS = 6f;
-        public const float UpgradeSoundS = 0.55f;
-        public const float SpeedLimitMarginMpS = 1.34f; // 3 mph
-        public const float MinStopZoneLengthM = 457f; // 1500 ft
-
-        // According to the Train Sim World: Northeast Corridor New York manual, these rates should be:
-        //public const float SuppressingAccelMpSS = -0.5f;
-        //public const float SuppressionAccelMpSS = -1.5f;
-        // But these seem unachievable in Open Rails.
-        public const float SuppressingAccelMpSS = -0.25f;
-        public const float SuppressionAccelMpSS = -0.5f;
-
-        private float blockLengthM = TrainControlSystemExtensions.NullSignalDistance;
-
-        private BlockTracker blockTracker;
         private PenaltyBrake penaltyBrake;
+        private OverspeedDisplay overspeed;
         private Alerter alerter;
-        private Aspect blockAspect;
-        private CodeChangeZone changeZone;
-        private Sound upgradeSound;
+        private Atc atc;
         private ISubsystem[] subsystems;
-
-        private PulseCode displayCode;
-        private PulseCode DisplayCode
-        {
-            get
-            {
-                return displayCode;
-            }
-            set
-            {
-                if (value < displayCode)
-                {
-                    float speed = PulseCodeMapping.ToSpeedMpS(value);
-                    bool overspeed = speed != 0 && SpeedMpS() > speed + SpeedLimitMarginMpS;
-                    Atc = overspeed ? ATCState.OverspeedCountdown : ATCState.Countdown;
-                }
-                else if (value > displayCode)
-                {
-                    upgradeSound.Play();
-                }
-                displayCode = value;
-            }
-        }
-
-        private enum ATCState
-        {
-            Off,
-            Countdown,          // Acknowledge the alarm
-            OverspeedCountdown, // Acknowledge the alarm (w/ penalty display)
-            Overspeed,          // Start slowing the train
-            OverspeedSlowing,   // Reached -0.5 m/s^2
-            OverspeedSuppress,  // Reached -1.5 m/s^2
-            Stop                // Penalty
-        }
-        private ATCState atc;
-        private Timer atcTimer;
-        private ATCState Atc
-        {
-            get
-            {
-                return atc;
-            }
-            set
-            {
-                if (atc == ATCState.Off)
-                {
-                    switch (value)
-                    {
-                        case ATCState.Countdown:
-                            atcTimer.Setup(CountdownS);
-                            atcTimer.Start();
-                            TriggerSoundWarning1();
-                            break;
-                        case ATCState.OverspeedCountdown:
-                            atcTimer.Setup(CountdownS);
-                            atcTimer.Start();
-                            TriggerSoundWarning1();
-                            SetOverspeedWarningDisplay(true);
-                            break;
-                        case ATCState.Overspeed:
-                        case ATCState.OverspeedSlowing:
-                            atcTimer.Setup(CountdownS);
-                            atcTimer.Start();
-                            SetOverspeedWarningDisplay(true);
-                            break;
-                        case ATCState.Stop:
-                            penaltyBrake.Set();
-                            break;
-                    }
-                }
-                else if (atc == ATCState.Countdown)
-                {
-                    switch (value)
-                    {
-                        case ATCState.Off:
-                        case ATCState.OverspeedSuppress:
-                            TriggerSoundWarning2();
-                            break;
-                        case ATCState.OverspeedCountdown:
-                            SetOverspeedWarningDisplay(true);
-                            break;
-                        case ATCState.Overspeed:
-                            TriggerSoundWarning2();
-                            SetOverspeedWarningDisplay(true);
-                            break;
-                        case ATCState.OverspeedSlowing:
-                            atcTimer.Setup(CountdownS);
-                            atcTimer.Start();
-                            TriggerSoundWarning2();
-                            SetOverspeedWarningDisplay(true);
-                            break;
-                        case ATCState.Stop:
-                            TriggerSoundWarning2();
-                            penaltyBrake.Set();
-                            break;
-                    }
-                }
-                else if (atc == ATCState.OverspeedCountdown)
-                {
-                    switch (value)
-                    {
-                        case ATCState.Off:
-                            TriggerSoundWarning2();
-                            SetOverspeedWarningDisplay(false);
-                            break;
-                        case ATCState.Countdown:
-                            SetOverspeedWarningDisplay(false);
-                            break;
-                        case ATCState.Overspeed:
-                            TriggerSoundWarning2();
-                            break;
-                        case ATCState.OverspeedSlowing:
-                            atcTimer.Setup(CountdownS);
-                            atcTimer.Start();
-                            TriggerSoundWarning2();
-                            break;
-                        case ATCState.OverspeedSuppress:
-                            TriggerSoundWarning2();
-                            SetOverspeedWarningDisplay(false);
-                            break;
-                        case ATCState.Stop:
-                            penaltyBrake.Set();
-                            TriggerSoundWarning2();
-                            SetOverspeedWarningDisplay(false);
-                            break;
-                    }
-                }
-                else if (atc == ATCState.Overspeed)
-                {
-                    switch (value)
-                    {
-                        case ATCState.Off:
-                        case ATCState.OverspeedSuppress:
-                            SetOverspeedWarningDisplay(false);
-                            break;
-                        case ATCState.Countdown:
-                            atcTimer.Setup(CountdownS);
-                            atcTimer.Start();
-                            TriggerSoundWarning1();
-                            SetOverspeedWarningDisplay(false);
-                            break;
-                        case ATCState.OverspeedCountdown:
-                            atcTimer.Setup(CountdownS);
-                            atcTimer.Start();
-                            TriggerSoundWarning1();
-                            break;
-                        case ATCState.OverspeedSlowing:
-                            atcTimer.Setup(CountdownS);
-                            atcTimer.Start();
-                            break;
-                        case ATCState.Stop:
-                            penaltyBrake.Set();
-                            SetOverspeedWarningDisplay(false);
-                            break;
-                    }
-                }
-                else if (atc == ATCState.OverspeedSlowing)
-                {
-                    switch (value)
-                    {
-                        case ATCState.Off:
-                            SetOverspeedWarningDisplay(false);
-                            break;
-                        case ATCState.Countdown:
-                            atcTimer.Setup(CountdownS);
-                            atcTimer.Start();
-                            TriggerSoundWarning1();
-                            SetOverspeedWarningDisplay(false);
-                            break;
-                        case ATCState.OverspeedCountdown:
-                            atcTimer.Setup(CountdownS);
-                            atcTimer.Start();
-                            TriggerSoundWarning1();
-                            break;
-                        case ATCState.Overspeed:
-                            atcTimer.Setup(CountdownS);
-                            atcTimer.Start();
-                            break;
-                        case ATCState.OverspeedSuppress:
-                            SetOverspeedWarningDisplay(false);
-                            break;
-                        case ATCState.Stop:
-                            penaltyBrake.Set();
-                            SetOverspeedWarningDisplay(false);
-                            break;
-                    }
-                }
-                else if (atc == ATCState.OverspeedSuppress)
-                {
-                    switch (value)
-                    {
-                        case ATCState.Countdown:
-                            atcTimer.Setup(CountdownS);
-                            atcTimer.Start();
-                            TriggerSoundWarning1();
-                            break;
-                        case ATCState.OverspeedCountdown:
-                            atcTimer.Setup(CountdownS);
-                            atcTimer.Start();
-                            TriggerSoundWarning1();
-                            break;
-                        case ATCState.Overspeed:
-                        case ATCState.OverspeedSlowing:
-                            atcTimer.Setup(CountdownS);
-                            atcTimer.Start();
-                            break;
-                        case ATCState.Stop:
-                            penaltyBrake.Set();
-                            break;
-                    }
-                }
-                else if (atc == ATCState.Stop)
-                {
-                    switch (value)
-                    {
-                        case ATCState.Off:
-                            penaltyBrake.Release();
-                            break;
-                        case ATCState.Countdown:
-                            atcTimer.Setup(CountdownS);
-                            atcTimer.Start();
-                            penaltyBrake.Release();
-                            TriggerSoundWarning1();
-                            break;
-                        case ATCState.OverspeedCountdown:
-                            atcTimer.Setup(CountdownS);
-                            atcTimer.Start();
-                            penaltyBrake.Release();
-                            TriggerSoundWarning1();
-                            SetOverspeedWarningDisplay(true);
-                            break;
-                        case ATCState.Overspeed:
-                        case ATCState.OverspeedSlowing:
-                            atcTimer.Setup(CountdownS);
-                            atcTimer.Start();
-                            penaltyBrake.Release();
-                            SetOverspeedWarningDisplay(true);
-                            break;
-                        case ATCState.OverspeedSuppress:
-                            penaltyBrake.Release();
-                            break;
-                    }
-                }
-
-                if (atc != value)
-                {
-                    Console.WriteLine(string.Format("ATC Alarm: {0} -> {1}", atc, value));
-                    atc = value;
-                }
-            }
-        }
 
         public override void Initialize()
         {
-            blockTracker = new BlockTracker(this);
-            blockTracker.NewSignalBlock += HandleNewSignalBlock;
             penaltyBrake = new PenaltyBrake(this);
+            overspeed = new OverspeedDisplay(this);
             alerter = new Alerter(
                 this,
                 GetFloatParameter("Alerter", "CountdownTimeS", 60f),
-                GetFloatParameter("Alerter", "AcknowledgeTimeS", CountdownS),
+                GetFloatParameter("Alerter", "AcknowledgeTimeS", 10f),
                 GetBoolParameter("Alerter", "DoControlsReset", true),
                 penaltyBrake.Set, penaltyBrake.Release);
-            changeZone = new CodeChangeZone(this, blockTracker);
-            upgradeSound = new Sound(this, TriggerSoundAlert1, TriggerSoundAlert2, UpgradeSoundS);
-            subsystems = new ISubsystem[] { blockTracker, alerter, upgradeSound };
+            atc = new Atc(this, penaltyBrake, overspeed);
+            subsystems = new ISubsystem[] { alerter, atc };
 
-            blockAspect = Aspect.Clear_2;
-            displayCode = PulseCodeMapping.ToPulseCode(blockAspect, 0f);
-            atc = ATCState.Off;
-            atcTimer = new Timer(this);
-
-            Console.WriteLine("ATC initialized!");
+            Console.WriteLine("Amtrak safety systems initialized!");
         }
 
         public override void HandleEvent(TCSEvent evt, string message)
         {
             foreach (ISubsystem sub in subsystems)
                 sub.HandleEvent(evt, message);
-
-            if (evt == TCSEvent.AlerterPressed)
-            {
-                if (Atc == ATCState.Countdown)
-                    Atc = ATCState.Off;
-                else if (Atc == ATCState.OverspeedCountdown)
-                    Atc = ATCState.Overspeed;
-                else if (Atc == ATCState.Stop && this.IsStopped())
-                    Atc = ATCState.Off;
-            }
-        }
-
-        private void HandleNewSignalBlock(object _, SignalBlockEventArgs e)
-        {
-            blockAspect = e.Aspect;
-            blockLengthM = e.BlockLengthM;
-
-            // Move the cab signal out of Restricting.
-            if (DisplayCode == PulseCode.Restricting)
-                DisplayCode = PulseCodeMapping.ToPulseCode(blockAspect, TrainSpeedLimitMpS());
         }
 
         public override void SetEmergency(bool emergency)
@@ -364,84 +70,8 @@ namespace ORTS.Scripting.Script
             foreach (ISubsystem sub in subsystems)
                 sub.Update();
 
-            if (blockLengthM == TrainControlSystemExtensions.NullSignalDistance)
-                blockLengthM = this.SafeNextSignalDistanceM(0);
-
-            UpdateCode();
-            UpdateAlarm();
-        }
-
-        private void UpdateCode()
-        {
-            if (GameTime() >= 1f)
-            {
-                float nextSignalM = this.SafeNextSignalDistanceM(0);
-                float speedLimitMpS = TrainSpeedLimitMpS();
-                PulseCode changeCode = PulseCodeMapping.ToPriorPulseCode(this.SafeNextSignalAspect(0), speedLimitMpS);
-                if (nextSignalM != TrainControlSystemExtensions.NullSignalDistance && nextSignalM <= MinStopZoneLengthM && changeCode == PulseCode.Restricting)
-                    DisplayCode = PulseCode.Restricting;
-                else if (DisplayCode == PulseCode.Restricting)
-                    DisplayCode = PulseCode.Restricting;
-                else if (changeZone.Inside())
-                    DisplayCode = changeCode;
-                else
-                    DisplayCode = PulseCodeMapping.ToPulseCode(blockAspect, speedLimitMpS);
-            }
-
-            SetNextSignalAspect(PulseCodeMapping.ToCabDisplay(DisplayCode));
-            SetNextSpeedLimitMpS(PulseCodeMapping.ToSpeedMpS(DisplayCode));
-        }
-
-        private void UpdateAlarm()
-        {
-            if (!IsTrainControlEnabled())
-            {
-                if ((Atc == ATCState.Countdown || Atc == ATCState.OverspeedCountdown) && atcTimer.Triggered)
-                    Atc = ATCState.Off;
-                else if (Atc == ATCState.Overspeed)
-                    Atc = ATCState.Off;
-                return;
-            }
-
-            float accelMpSS = Locomotive().AccelerationMpSS;
-            float speed = PulseCodeMapping.ToSpeedMpS(DisplayCode);
-            bool overspeed = speed != 0 && SpeedMpS() > speed + SpeedLimitMarginMpS;
-
-            if (Atc == ATCState.Off && overspeed)
-            {
-                Atc = ATCState.OverspeedCountdown;
-            }
-            else if ((Atc == ATCState.Countdown || Atc == ATCState.OverspeedCountdown) && atcTimer.Triggered)
-            {
-                Atc = ATCState.Stop;
-            }
-            else if (Atc == ATCState.Overspeed)
-            {
-                if (!overspeed)
-                    Atc = ATCState.Off;
-                else if (accelMpSS <= SuppressingAccelMpSS)
-                    Atc = ATCState.OverspeedSlowing;
-                else if (atcTimer.Triggered)
-                    Atc = ATCState.Stop;
-            }
-            else if (Atc == ATCState.OverspeedSlowing)
-            {
-                if (!overspeed)
-                    Atc = ATCState.Off;
-                else if (accelMpSS <= SuppressionAccelMpSS)
-                    Atc = ATCState.OverspeedSuppress;
-                else if (accelMpSS > SuppressingAccelMpSS)
-                    Atc = ATCState.OverspeedCountdown;
-                else if (atcTimer.Triggered)
-                    Atc = ATCState.Stop;
-            }
-            else if (Atc == ATCState.OverspeedSuppress)
-            {
-                if (!overspeed)
-                    Atc = ATCState.Off;
-                else if (accelMpSS > SuppressionAccelMpSS)
-                    Atc = ATCState.OverspeedCountdown;
-            }
+            SetNextSignalAspect(atc.CabAspect);
+            SetNextSpeedLimitMpS(atc.SpeedLimitMpS);
         }
     }
 }
@@ -488,6 +118,407 @@ internal static class TrainControlSystemExtensions
     public static bool IsStopped(this TrainControlSystem tcs)
     {
         return tcs.SpeedMpS() < 0.1f;
+    }
+}
+
+internal class Atc : ISubsystem
+{
+    public const float CountdownS = 6f;
+    public const float UpgradeSoundS = 0.55f;
+    public const Aspect InitAspect = Aspect.Clear_2;
+    public const float SpeedLimitMarginMpS = 1.34f; // 3 mph
+    public const float MinStopZoneLengthM = 457f; // 1500 ft
+    // According to the Train Sim World: Northeast Corridor New York manual, these rates should be:
+    //public const float SuppressingAccelMpSS = -0.5f;
+    //public const float SuppressionAccelMpSS = -1.5f;
+    // But these seem unachievable in Open Rails.
+    public const float SuppressingAccelMpSS = -0.25f;
+    public const float SuppressionAccelMpSS = -0.5f;
+
+    private readonly TrainControlSystem tcs;
+    private readonly Timer timer;
+    private readonly BlockTracker blockTracker;
+    private readonly CodeChangeZone changeZone;
+    private readonly PenaltyBrake penaltyBrake;
+    private readonly OverspeedDisplay overspeed;
+    private readonly Sound upgradeSound;
+    private readonly ISubsystem[] subsystems;
+    private Aspect blockAspect = InitAspect;
+    private float blockLengthM = TrainControlSystemExtensions.NullSignalDistance;
+
+    private enum ATCState
+    {
+        Off,
+        Countdown,          // Acknowledge the alarm
+        OverspeedCountdown, // Acknowledge the alarm (w/ penalty display)
+        Overspeed,          // Start slowing the train
+        OverspeedSlowing,   // Reached -0.5 m/s^2
+        OverspeedSuppress,  // Reached -1.5 m/s^2
+        Stop                // Penalty
+    }
+    private ATCState state = ATCState.Off;
+    private ATCState State
+    {
+        get
+        {
+            return state;
+        }
+        set
+        {
+            if (state == ATCState.Off)
+            {
+                switch (value)
+                {
+                    case ATCState.Countdown:
+                        timer.Setup(CountdownS);
+                        timer.Start();
+                        tcs.TriggerSoundWarning1();
+                        break;
+                    case ATCState.OverspeedCountdown:
+                        timer.Setup(CountdownS);
+                        timer.Start();
+                        overspeed.Set();
+                        tcs.TriggerSoundWarning1();
+                        break;
+                    case ATCState.Overspeed:
+                    case ATCState.OverspeedSlowing:
+                        timer.Setup(CountdownS);
+                        timer.Start();
+                        overspeed.Set();
+                        break;
+                    case ATCState.Stop:
+                        penaltyBrake.Set();
+                        break;
+                }
+            }
+            else if (state == ATCState.Countdown)
+            {
+                switch (value)
+                {
+                    case ATCState.Off:
+                    case ATCState.OverspeedSuppress:
+                        tcs.TriggerSoundWarning2();
+                        break;
+                    case ATCState.OverspeedCountdown:
+                        overspeed.Set();
+                        break;
+                    case ATCState.Overspeed:
+                        overspeed.Set();
+                        tcs.TriggerSoundWarning2();
+                        break;
+                    case ATCState.OverspeedSlowing:
+                        timer.Setup(CountdownS);
+                        timer.Start();
+                        overspeed.Set();
+                        tcs.TriggerSoundWarning2();
+                        break;
+                    case ATCState.Stop:
+                        penaltyBrake.Set();
+                        tcs.TriggerSoundWarning2();
+                        break;
+                }
+            }
+            else if (state == ATCState.OverspeedCountdown)
+            {
+                switch (value)
+                {
+                    case ATCState.Off:
+                        overspeed.Release();
+                        tcs.TriggerSoundWarning2();
+                        break;
+                    case ATCState.Countdown:
+                        overspeed.Release();
+                        break;
+                    case ATCState.Overspeed:
+                        tcs.TriggerSoundWarning2();
+                        break;
+                    case ATCState.OverspeedSlowing:
+                        timer.Setup(CountdownS);
+                        timer.Start();
+                        tcs.TriggerSoundWarning2();
+                        break;
+                    case ATCState.OverspeedSuppress:
+                        overspeed.Release();
+                        tcs.TriggerSoundWarning2();
+                        break;
+                    case ATCState.Stop:
+                        penaltyBrake.Set();
+                        tcs.TriggerSoundWarning2();
+                        overspeed.Release();
+                        break;
+                }
+            }
+            else if (state == ATCState.Overspeed)
+            {
+                switch (value)
+                {
+                    case ATCState.Off:
+                    case ATCState.OverspeedSuppress:
+                        overspeed.Release();
+                        break;
+                    case ATCState.Countdown:
+                        timer.Setup(CountdownS);
+                        timer.Start();
+                        overspeed.Release();
+                        tcs.TriggerSoundWarning1();
+                        break;
+                    case ATCState.OverspeedCountdown:
+                        timer.Setup(CountdownS);
+                        timer.Start();
+                        tcs.TriggerSoundWarning1();
+                        break;
+                    case ATCState.OverspeedSlowing:
+                        timer.Setup(CountdownS);
+                        timer.Start();
+                        break;
+                    case ATCState.Stop:
+                        penaltyBrake.Set();
+                        overspeed.Release();
+                        break;
+                }
+            }
+            else if (state == ATCState.OverspeedSlowing)
+            {
+                switch (value)
+                {
+                    case ATCState.Off:
+                        overspeed.Release();
+                        break;
+                    case ATCState.Countdown:
+                        timer.Setup(CountdownS);
+                        timer.Start();
+                        overspeed.Release();
+                        tcs.TriggerSoundWarning1();
+                        break;
+                    case ATCState.OverspeedCountdown:
+                        timer.Setup(CountdownS);
+                        timer.Start();
+                        tcs.TriggerSoundWarning1();
+                        break;
+                    case ATCState.Overspeed:
+                        timer.Setup(CountdownS);
+                        timer.Start();
+                        break;
+                    case ATCState.OverspeedSuppress:
+                        overspeed.Release();
+                        break;
+                    case ATCState.Stop:
+                        penaltyBrake.Set();
+                        overspeed.Release();
+                        break;
+                }
+            }
+            else if (state == ATCState.OverspeedSuppress)
+            {
+                switch (value)
+                {
+                    case ATCState.Countdown:
+                        timer.Setup(CountdownS);
+                        timer.Start();
+                        tcs.TriggerSoundWarning1();
+                        break;
+                    case ATCState.OverspeedCountdown:
+                        timer.Setup(CountdownS);
+                        timer.Start();
+                        tcs.TriggerSoundWarning1();
+                        break;
+                    case ATCState.Overspeed:
+                    case ATCState.OverspeedSlowing:
+                        timer.Setup(CountdownS);
+                        timer.Start();
+                        break;
+                    case ATCState.Stop:
+                        penaltyBrake.Set();
+                        break;
+                }
+            }
+            else if (state == ATCState.Stop)
+            {
+                switch (value)
+                {
+                    case ATCState.Off:
+                        penaltyBrake.Release();
+                        break;
+                    case ATCState.Countdown:
+                        timer.Setup(CountdownS);
+                        timer.Start();
+                        penaltyBrake.Release();
+                        tcs.TriggerSoundWarning1();
+                        break;
+                    case ATCState.OverspeedCountdown:
+                        timer.Setup(CountdownS);
+                        timer.Start();
+                        penaltyBrake.Release();
+                        overspeed.Set();
+                        tcs.TriggerSoundWarning1();
+                        break;
+                    case ATCState.Overspeed:
+                    case ATCState.OverspeedSlowing:
+                        timer.Setup(CountdownS);
+                        timer.Start();
+                        overspeed.Set();
+                        penaltyBrake.Release();
+                        break;
+                    case ATCState.OverspeedSuppress:
+                        penaltyBrake.Release();
+                        break;
+                }
+            }
+
+            if (state != value)
+            {
+                Console.WriteLine(string.Format("ATC Alarm: {0} -> {1}", state, value));
+                state = value;
+            }
+        }
+    }
+
+    private PulseCode displayCode = PulseCodeMapping.ToPulseCode(InitAspect, 0f);
+    private  PulseCode DisplayCode
+    {
+        get
+        {
+            return displayCode;
+        }
+        set
+        {
+            if (value < displayCode)
+            {
+                float speed = PulseCodeMapping.ToSpeedMpS(value);
+                bool overspeed = speed != 0 && tcs.SpeedMpS() > speed + SpeedLimitMarginMpS;
+                State = overspeed ? ATCState.OverspeedCountdown : ATCState.Countdown;
+            }
+            else if (value > displayCode)
+            {
+                upgradeSound.Play();
+            }
+
+            displayCode = value;
+        }
+    }
+
+    public Aspect CabAspect { get { return PulseCodeMapping.ToCabDisplay(DisplayCode); } }
+    public float SpeedLimitMpS { get { return PulseCodeMapping.ToSpeedMpS(DisplayCode); } }
+
+    public Atc(TrainControlSystem parent, PenaltyBrake brake, OverspeedDisplay overspeed)
+    {
+        tcs = parent;
+        timer = new Timer(tcs);
+        blockTracker = new BlockTracker(tcs);
+        blockTracker.NewSignalBlock += HandleNewSignalBlock;
+        changeZone = new CodeChangeZone(tcs, blockTracker);
+        penaltyBrake = brake;
+        this.overspeed = overspeed;
+        upgradeSound = new Sound(tcs, tcs.TriggerSoundAlert1, tcs.TriggerSoundAlert2, UpgradeSoundS);
+        subsystems = new ISubsystem[] { blockTracker, upgradeSound };
+    }
+
+    private void HandleNewSignalBlock(object _, SignalBlockEventArgs e)
+    {
+        blockAspect = e.Aspect;
+        blockLengthM = e.BlockLengthM;
+
+        // Move the cab signal out of Restricting.
+        if (DisplayCode == PulseCode.Restricting)
+            DisplayCode = PulseCodeMapping.ToPulseCode(blockAspect, tcs.TrainSpeedLimitMpS());
+    }
+
+    public void HandleEvent(TCSEvent evt, string message)
+    {
+        foreach (ISubsystem sub in subsystems)
+            sub.HandleEvent(evt, message);
+
+        if (evt == TCSEvent.AlerterPressed)
+        {
+            if (State == ATCState.Countdown)
+                State = ATCState.Off;
+            else if (State == ATCState.OverspeedCountdown)
+                State = ATCState.Overspeed;
+            else if (State == ATCState.Stop && tcs.IsStopped())
+                State = ATCState.Off;
+        }
+    }
+
+    public void Update()
+    {
+        foreach (ISubsystem sub in subsystems)
+            sub.Update();
+
+        if (blockLengthM == TrainControlSystemExtensions.NullSignalDistance)
+            blockLengthM = tcs.SafeNextSignalDistanceM(0);
+
+        UpdateCode();
+        UpdateAlarm();
+    }
+
+    private void UpdateCode()
+    {
+        if (tcs.GameTime() < 1f)
+            return;
+
+        float nextSignalM = tcs.SafeNextSignalDistanceM(0);
+        float speedLimitMpS = tcs.TrainSpeedLimitMpS();
+        PulseCode changeCode = PulseCodeMapping.ToPriorPulseCode(tcs.SafeNextSignalAspect(0), speedLimitMpS);
+        if (nextSignalM != TrainControlSystemExtensions.NullSignalDistance && nextSignalM <= MinStopZoneLengthM && changeCode == PulseCode.Restricting)
+            DisplayCode = PulseCode.Restricting;
+        else if (DisplayCode == PulseCode.Restricting)
+            DisplayCode = PulseCode.Restricting;
+        else if (changeZone.Inside())
+            DisplayCode = changeCode;
+        else
+            DisplayCode = PulseCodeMapping.ToPulseCode(blockAspect, speedLimitMpS);
+    }
+
+    private void UpdateAlarm()
+    {
+        if (!tcs.IsTrainControlEnabled())
+        {
+            if ((State == ATCState.Countdown || State == ATCState.OverspeedCountdown) && timer.Triggered)
+                State = ATCState.Off;
+            else if (State == ATCState.Overspeed)
+                State = ATCState.Off;
+            return;
+        }
+
+        float accelMpSS = tcs.Locomotive().AccelerationMpSS;
+        float speed = PulseCodeMapping.ToSpeedMpS(DisplayCode);
+        bool overspeed = speed != 0 && tcs.SpeedMpS() > speed + SpeedLimitMarginMpS;
+
+        if (State == ATCState.Off && overspeed)
+        {
+            State = ATCState.OverspeedCountdown;
+        }
+        else if ((State == ATCState.Countdown || State == ATCState.OverspeedCountdown) && timer.Triggered)
+        {
+            State = ATCState.Stop;
+        }
+        else if (State == ATCState.Overspeed)
+        {
+            if (!overspeed)
+                State = ATCState.Off;
+            else if (accelMpSS <= SuppressingAccelMpSS)
+                State = ATCState.OverspeedSlowing;
+            else if (timer.Triggered)
+                State = ATCState.Stop;
+        }
+        else if (State == ATCState.OverspeedSlowing)
+        {
+            if (!overspeed)
+                State = ATCState.Off;
+            else if (accelMpSS <= SuppressionAccelMpSS)
+                State = ATCState.OverspeedSuppress;
+            else if (accelMpSS > SuppressingAccelMpSS)
+                State = ATCState.OverspeedCountdown;
+            else if (timer.Triggered)
+                State = ATCState.Stop;
+        }
+        else if (State == ATCState.OverspeedSuppress)
+        {
+            if (!overspeed)
+                State = ATCState.Off;
+            else if (accelMpSS > SuppressionAccelMpSS)
+                State = ATCState.OverspeedCountdown;
+        }
     }
 }
 
@@ -954,6 +985,26 @@ internal class PenaltyBrake : SharedLatch
     {
         tcs.SetFullBrake(false);
         tcs.SetPenaltyApplicationDisplay(false);
+    }
+}
+
+internal class OverspeedDisplay : SharedLatch
+{
+    private readonly TrainControlSystem tcs;
+
+    public OverspeedDisplay(TrainControlSystem parent)
+    {
+        tcs = parent;
+    }
+
+    protected override void DoSet()
+    {
+        tcs.SetOverspeedWarningDisplay(true);
+    }
+
+    protected override void DoRelease()
+    {
+        tcs.SetOverspeedWarningDisplay(false);
     }
 }
 
