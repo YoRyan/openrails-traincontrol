@@ -56,7 +56,10 @@ namespace ORTS.Scripting.Script
                 GetBoolParameter("Alerter", "DoControlsReset", true),
                 penaltyBrake.Set, penaltyBrake.Release);
             atc = new Atc(this, penaltyBrake, overspeed, alertSound);
-            acses = new Acses(this, penaltyBrake, alertSound);
+            acses = new Acses(this, penaltyBrake, alertSound)
+            {
+                Enabled = GetBoolParameter("ACSES", "Enable", true)
+            };
             subsystems = new ISubsystem[] { alerter, atc, acses };
 
             combineSpeedDisplays = !GetBoolParameter("ACSES", "IndependentSpeedDisplay", false);
@@ -691,6 +694,7 @@ internal class Acses : ISubsystem
     }
 
     public float SpeedLimitMpS { get { return State == AcsesState.Off ? tcs.CurrentPostSpeedLimitMpS() : offendingLimitMpS; } }
+    public bool Enabled = true;
 
     public Acses(TrainControlSystem parent, PenaltyBrake brake, AlertSound alert)
     {
@@ -713,7 +717,7 @@ internal class Acses : ISubsystem
 
     public void Update()
     {
-        if (!tcs.IsTrainControlEnabled())
+        if (!Enabled || !tcs.IsTrainControlEnabled())
         {
             State = AcsesState.Off;
             return;
