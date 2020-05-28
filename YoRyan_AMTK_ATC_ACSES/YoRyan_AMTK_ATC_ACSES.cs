@@ -483,6 +483,19 @@ internal class Atc : ISubsystem
         float accelMpSS = tcs.Locomotive().AccelerationMpSS;
         float speed = PulseCodeMapping.ToSpeedMpS(DisplayCode);
         bool overspeed = speed != 0 && tcs.SpeedMpS() > speed + SpeedLimitMarginMpS;
+        bool suppressing;
+        switch (tcs.Locomotive().TrainBrakeController.TrainBrakeControllerState)
+        {
+            case ControllerState.Suppression:
+            case ControllerState.ContServ:
+            case ControllerState.FullServ:
+            case ControllerState.Emergency:
+                suppressing = true;
+                break;
+            default:
+                suppressing = false;
+                break;
+        }
 
         if (State == ATCState.Off && overspeed)
         {
@@ -498,6 +511,8 @@ internal class Atc : ISubsystem
                 State = ATCState.Off;
             else if (accelMpSS <= SuppressingAccelMpSS)
                 State = ATCState.OverspeedSlowing;
+            else if (suppressing)
+                State = ATCState.OverspeedSuppress;
             else if (timer.Triggered)
                 State = ATCState.Stop;
         }
@@ -509,6 +524,8 @@ internal class Atc : ISubsystem
                 State = ATCState.OverspeedSuppress;
             else if (accelMpSS > SuppressingAccelMpSS)
                 State = ATCState.OverspeedCountdown;
+            else if (suppressing)
+                State = ATCState.OverspeedSuppress;
             else if (timer.Triggered)
                 State = ATCState.Stop;
         }
@@ -516,7 +533,7 @@ internal class Atc : ISubsystem
         {
             if (!overspeed)
                 State = ATCState.Off;
-            else if (accelMpSS > SuppressionAccelMpSS)
+            else if (accelMpSS > SuppressionAccelMpSS && !suppressing)
                 State = ATCState.OverspeedCountdown;
         }
     }
