@@ -28,6 +28,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Orts.Simulation;
 using ORTS.Scripting.Api;
 
 namespace ORTS.Scripting.Script
@@ -392,10 +393,6 @@ internal class Atc : ISubsystem
                 switch (value)
                 {
                     case ATCState.Countdown:
-                        timer.Setup(CountdownS);
-                        timer.Start();
-                        alert.Set();
-                        break;
                     case ATCState.OverspeedCountdown:
                         timer.Setup(CountdownS);
                         timer.Start();
@@ -466,10 +463,12 @@ internal class Atc : ISubsystem
                 float speed = PulseCodeMapping.ToSpeedMpS(value);
                 bool overspeed = speed != 0 && tcs.SpeedMpS() > speed + SpeedLimitMarginMpS;
                 State = overspeed ? ATCState.OverspeedCountdown : ATCState.Countdown;
+                Confirm("downgrade");
             }
             else if (value > displayCode)
             {
                 upgradeSound.Play();
+                Confirm("upgrade");
             }
 
             displayCode = value;
@@ -511,11 +510,20 @@ internal class Atc : ISubsystem
         if (evt == TCSEvent.AlerterPressed)
         {
             if (State == ATCState.Countdown)
+            {
                 State = ATCState.Off;
+                Confirm("acknowledge");
+            }
             else if (State == ATCState.OverspeedCountdown)
+            {
                 State = ATCState.Overspeed;
+                Confirm("acknowledge");
+            }
             else if (State == ATCState.Stop && tcs.IsStopped())
+            {
                 State = ATCState.Off;
+                Confirm("reset");
+            }
         }
     }
 
@@ -580,42 +588,72 @@ internal class Atc : ISubsystem
         if (State == ATCState.Off && overspeed)
         {
             State = ATCState.OverspeedCountdown;
+            Confirm("overspeed");
         }
         else if ((State == ATCState.Countdown || State == ATCState.OverspeedCountdown) && timer.Triggered)
         {
             State = ATCState.Stop;
+            Confirm("penalty");
         }
         else if (State == ATCState.Overspeed)
         {
             if (!overspeed)
+            {
                 State = ATCState.Off;
+            }
             else if (accelMpSS <= SuppressingAccelMpSS)
+            {
                 State = ATCState.OverspeedSlowing;
+            }
             else if (suppressing)
+            {
                 State = ATCState.OverspeedSuppress;
+                Confirm("suppressed");
+            }
             else if (timer.Triggered)
+            {
                 State = ATCState.Stop;
+                Confirm("penalty");
+            }
         }
         else if (State == ATCState.OverspeedSlowing)
         {
             if (!overspeed)
+            {
                 State = ATCState.Off;
-            else if (accelMpSS <= SuppressionAccelMpSS)
+            }
+            else if (accelMpSS <= SuppressionAccelMpSS || suppressing)
+            {
                 State = ATCState.OverspeedSuppress;
+                Confirm("suppressed");
+            }
             else if (accelMpSS > SuppressingAccelMpSS)
+            {
                 State = ATCState.OverspeedCountdown;
-            else if (suppressing)
-                State = ATCState.OverspeedSuppress;
+            }
             else if (timer.Triggered)
+            {
                 State = ATCState.Stop;
+                Confirm("penalty");
+            }
         }
         else if (State == ATCState.OverspeedSuppress)
         {
             if (!overspeed)
+            {
                 State = ATCState.Off;
+            }
             else if (accelMpSS > SuppressionAccelMpSS && !suppressing)
+            {
                 State = ATCState.OverspeedCountdown;
+                Confirm("overspeed");
+            }
         }
+    }
+
+    private void Confirm(string message)
+    {
+        tcs.Message(ConfirmLevel.None, "ATC: " + message);
     }
 }
 
@@ -721,9 +759,15 @@ internal class Acses : ISubsystem
         if (evt == TCSEvent.AlerterPressed)
         {
             if (State == AcsesState.Alert)
+            {
                 State = AcsesState.AlertAcknowledged;
+                Confirm("acknowledge");
+            }
             else if (State == AcsesState.Penalty && tcs.SpeedMpS() <= offendingLimitMpS)
+            {
                 State = AcsesState.Recovered;
+                Confirm("reset");
+            }
         }
     }
 
@@ -802,12 +846,19 @@ internal class Acses : ISubsystem
     {
         this.offendingLimitMpS = offendingLimitMpS;
         State = AcsesState.Alert;
+        Confirm("reduce speed");
     }
 
     private void Penalty(float offendingLimitMpS)
     {
         this.offendingLimitMpS = offendingLimitMpS;
         State = AcsesState.Penalty;
+        Confirm("penalty");
+    }
+
+    private void Confirm(string message)
+    {
+        tcs.Message(ConfirmLevel.None, "ACSES: " + message);
     }
 }
 
