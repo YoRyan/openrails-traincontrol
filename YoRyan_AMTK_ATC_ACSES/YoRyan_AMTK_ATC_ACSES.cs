@@ -185,6 +185,18 @@ internal static class TrainControlSystemExtensions
     {
         return tcs.SpeedMpS() < 0.1f;
     }
+
+    public static float DelayedSpeedCurve(this TrainControlSystem tcs, float targetDistanceM, float targetSpeedMpS, float slope, float delayS, float decelerationMpS2)
+    {
+        // The delay parameter seems to lower the activation speed rather than actually delay it,
+        // so adjust the target distance instead.
+        return tcs.SpeedCurve(Math.Max(targetDistanceM - tcs.PredictedDistanceM(delayS), 0f), targetSpeedMpS, slope, 0f, decelerationMpS2);
+    }
+
+    public static float PredictedDistanceM(this TrainControlSystem tcs, float timeS)
+    {
+        return tcs.SpeedMpS() * timeS + 0.5f * tcs.Locomotive().AccelerationMpSS * timeS * timeS;
+    }
 }
 
 internal class Atc : ISubsystem
@@ -727,13 +739,13 @@ internal class Acses : ISubsystem
         Func<SpeedPost, float, bool> inSpeedPostBrakeCurve = (SpeedPost post, float delayS) =>
         {
             const float slope = 0f;
-            return post.DistanceM < tcs.DistanceCurve(speedMpS, post.LimitMpS, slope, delayS, -PenaltyCurveMpSS);
+            return speedMpS > tcs.DelayedSpeedCurve(post.DistanceM, post.LimitMpS, slope, delayS, -PenaltyCurveMpSS);
         };
 
         const int lookahead = 3;
         foreach (SpeedPost post in GetUpcomingSpeedPosts(lookahead))
         {
-            if (inSpeedPostBrakeCurve(post, TimeToPenaltyS))
+            if (State == AcsesState.Off && inSpeedPostBrakeCurve(post, TimeToPenaltyS))
             {
                 Alert(post.LimitMpS);
                 break;
