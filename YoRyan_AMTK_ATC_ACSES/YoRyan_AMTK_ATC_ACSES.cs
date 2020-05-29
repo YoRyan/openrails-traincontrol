@@ -780,44 +780,60 @@ internal class Acses : ISubsystem
         }
 
         float speedMpS = tcs.SpeedMpS();
+        float speedLimitMpS = tcs.SafeCurrentPostSpeedLimitMpS();
+        bool speedLimitValid = speedLimitMpS != TrainControlSystemExtensions.NullSpeedLimit;
+
+        const int lookahead = 3;
+        var posts = new List<SpeedPost>(GetUpcomingSpeedPosts(lookahead));
         Func<SpeedPost, float, bool> inSpeedPostBrakeCurve = (SpeedPost post, float delayS) =>
         {
             const float slope = 0f;
             return speedMpS > tcs.DelayedSpeedCurve(post.DistanceM, post.LimitMpS, slope, delayS, -PenaltyCurveMpSS);
         };
 
-        const int lookahead = 3;
-        foreach (SpeedPost post in GetUpcomingSpeedPosts(lookahead))
+        foreach (SpeedPost post in posts)
         {
-            if (State == AcsesState.Off && inSpeedPostBrakeCurve(post, TimeToPenaltyS))
-            {
-                Alert(post.LimitMpS);
-                break;
-            }
-            else if (inSpeedPostBrakeCurve(post, 0f))
+            if (inSpeedPostBrakeCurve(post, 0f))
             {
                 Penalty(post.LimitMpS);
-                break;
+                return;
             }
         }
+        if (speedMpS > speedLimitMpS + SpeedLimitPenaltyMpS && speedLimitValid)
+        {
+            Penalty(speedLimitMpS);
+            return;
+        }
 
-        float speedLimitMpS = tcs.SafeCurrentPostSpeedLimitMpS();
-        bool speedLimitValid = speedLimitMpS != TrainControlSystemExtensions.NullSpeedLimit;
-        if (State == AcsesState.Alert)
+        if (State == AcsesState.Off)
+        {
+            foreach (SpeedPost post in posts)
+            {
+                if (inSpeedPostBrakeCurve(post, TimeToPenaltyS))
+                {
+                    Alert(post.LimitMpS);
+                    return;
+                }
+            }
+            if (speedMpS > speedLimitMpS + SpeedLimitAlertMpS && speedLimitValid)
+            {
+                Alert(speedLimitMpS);
+                return;
+            }
+        }
+        else if (State == AcsesState.Alert)
         {
             if (timer.Triggered)
+            {
                 Penalty(offendingLimitMpS);
+                return;
+            }
         }
-        else if (State == AcsesState.Recovered || State == AcsesState.AlertAcknowledged)
+        else if (State == AcsesState.AlertAcknowledged || State == AcsesState.Recovered)
         {
-            if (speedLimitMpS <= offendingLimitMpS && speedLimitValid)
+            if (speedMpS < speedLimitMpS + SpeedLimitAlertMpS && speedLimitMpS <= offendingLimitMpS && speedLimitValid)
                 State = AcsesState.Off;
         }
-
-        if (speedMpS > speedLimitMpS + SpeedLimitPenaltyMpS && speedLimitValid)
-            Penalty(speedLimitMpS);
-        else if (speedMpS > speedLimitMpS + SpeedLimitAlertMpS && speedLimitValid)
-            Alert(speedLimitMpS);
     }
 
     private struct SpeedPost
