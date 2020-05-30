@@ -931,6 +931,11 @@ internal class Acses : ISubsystem
             if (speedMpS < speedLimitMpS + SpeedLimitAlertMpS && speedLimitMpS <= offendingLimitMpS && speedLimitValid)
                 State = AcsesState.Off;
         }
+        else if (State == AcsesState.StopPenalty)
+        {
+            if (!positiveStop)
+                State = AcsesState.Off;
+        }
         else if (State == AcsesState.StopRelease)
         {
             if (speedMpS > PositiveStopReleaseSpeedMpS + SpeedLimitAlertMpS)
