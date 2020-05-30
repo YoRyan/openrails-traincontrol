@@ -262,9 +262,11 @@ internal class Atc : ISubsystem
                         timer.Setup(CountdownS);
                         timer.Start();
                         overspeed.Set();
+                        tcs.TriggerSoundAlert1();
                         break;
                     case ATCState.Stop:
                         penaltyBrake.Set();
+                        tcs.TriggerSoundAlert1();
                         break;
                 }
             }
@@ -277,21 +279,16 @@ internal class Atc : ISubsystem
                         tcs.TriggerSoundAlert2();
                         break;
                     case ATCState.OverspeedCountdown:
-                        overspeed.Set();
-                        break;
                     case ATCState.Overspeed:
                         overspeed.Set();
-                        tcs.TriggerSoundAlert2();
                         break;
                     case ATCState.OverspeedSlowing:
                         timer.Setup(CountdownS);
                         timer.Start();
                         overspeed.Set();
-                        tcs.TriggerSoundAlert2();
                         break;
                     case ATCState.Stop:
                         penaltyBrake.Set();
-                        tcs.TriggerSoundAlert2();
                         break;
                 }
             }
@@ -306,13 +303,9 @@ internal class Atc : ISubsystem
                     case ATCState.Countdown:
                         overspeed.Release();
                         break;
-                    case ATCState.Overspeed:
-                        tcs.TriggerSoundAlert2();
-                        break;
                     case ATCState.OverspeedSlowing:
                         timer.Setup(CountdownS);
                         timer.Start();
-                        tcs.TriggerSoundAlert2();
                         break;
                     case ATCState.OverspeedSuppress:
                         overspeed.Release();
@@ -320,7 +313,6 @@ internal class Atc : ISubsystem
                         break;
                     case ATCState.Stop:
                         penaltyBrake.Set();
-                        tcs.TriggerSoundAlert2();
                         overspeed.Release();
                         break;
                 }
@@ -332,17 +324,16 @@ internal class Atc : ISubsystem
                     case ATCState.Off:
                     case ATCState.OverspeedSuppress:
                         overspeed.Release();
+                        tcs.TriggerSoundAlert2();
                         break;
                     case ATCState.Countdown:
                         timer.Setup(CountdownS);
                         timer.Start();
                         overspeed.Release();
-                        tcs.TriggerSoundAlert1();
                         break;
                     case ATCState.OverspeedCountdown:
                         timer.Setup(CountdownS);
                         timer.Start();
-                        tcs.TriggerSoundAlert1();
                         break;
                     case ATCState.OverspeedSlowing:
                         timer.Setup(CountdownS);
@@ -360,17 +351,16 @@ internal class Atc : ISubsystem
                 {
                     case ATCState.Off:
                         overspeed.Release();
+                        tcs.TriggerSoundAlert2();
                         break;
                     case ATCState.Countdown:
                         timer.Setup(CountdownS);
                         timer.Start();
                         overspeed.Release();
-                        tcs.TriggerSoundAlert1();
                         break;
                     case ATCState.OverspeedCountdown:
                         timer.Setup(CountdownS);
                         timer.Start();
-                        tcs.TriggerSoundAlert1();
                         break;
                     case ATCState.Overspeed:
                         timer.Setup(CountdownS);
@@ -378,6 +368,7 @@ internal class Atc : ISubsystem
                         break;
                     case ATCState.OverspeedSuppress:
                         overspeed.Release();
+                        tcs.TriggerSoundAlert2();
                         break;
                     case ATCState.Stop:
                         penaltyBrake.Set();
@@ -391,17 +382,15 @@ internal class Atc : ISubsystem
                 {
                     case ATCState.Countdown:
                     case ATCState.OverspeedCountdown:
-                        timer.Setup(CountdownS);
-                        timer.Start();
-                        tcs.TriggerSoundAlert1();
-                        break;
                     case ATCState.Overspeed:
                     case ATCState.OverspeedSlowing:
                         timer.Setup(CountdownS);
                         timer.Start();
+                        tcs.TriggerSoundAlert1();
                         break;
                     case ATCState.Stop:
                         penaltyBrake.Set();
+                        tcs.TriggerSoundAlert1();
                         break;
                 }
             }
@@ -410,29 +399,26 @@ internal class Atc : ISubsystem
                 switch (value)
                 {
                     case ATCState.Off:
+                    case ATCState.OverspeedSuppress:
                         penaltyBrake.Release();
+                        tcs.TriggerSoundAlert2();
                         break;
                     case ATCState.Countdown:
                         timer.Setup(CountdownS);
                         timer.Start();
                         penaltyBrake.Release();
-                        tcs.TriggerSoundAlert1();
                         break;
                     case ATCState.OverspeedCountdown:
                         timer.Setup(CountdownS);
                         timer.Start();
                         penaltyBrake.Release();
                         overspeed.Set();
-                        tcs.TriggerSoundAlert1();
                         break;
                     case ATCState.Overspeed:
                     case ATCState.OverspeedSlowing:
                         timer.Setup(CountdownS);
                         timer.Start();
                         overspeed.Set();
-                        penaltyBrake.Release();
-                        break;
-                    case ATCState.OverspeedSuppress:
                         penaltyBrake.Release();
                         break;
                 }
