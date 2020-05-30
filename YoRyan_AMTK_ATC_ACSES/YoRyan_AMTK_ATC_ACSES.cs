@@ -663,8 +663,8 @@ internal class Acses : ISubsystem
 
     private readonly TrainControlSystem tcs;
     private readonly PenaltyBrake penaltyBrake;
-    private float offendingLimitMpS = 0f;
 
+    private float offendingLimitMpS = 0f;
     private float currentLimitMpS = 0f;
     private float CurrentLimitMpS
     {
@@ -693,13 +693,9 @@ internal class Acses : ISubsystem
     {
         Off,
         Alert,
-        AlertAcknowledged,
         Penalty,
-        Recovered,
-        StopPenalty,
-        StopRelease,
-        StopReleaseAlert,
-        StopReleaseAlertAcknowledged
+        Revealed,
+        PositiveStop,
     }
     private AcsesState state = AcsesState.Off;
     private AcsesState State
@@ -710,55 +706,63 @@ internal class Acses : ISubsystem
         }
         set
         {
-            if (state == AcsesState.Off || state == AcsesState.AlertAcknowledged || state == AcsesState.Recovered
-                || state == AcsesState.StopRelease || state == AcsesState.StopReleaseAlertAcknowledged)
+            if (state == AcsesState.Off || state == AcsesState.Revealed)
             {
-                switch (value)
+                if (value == AcsesState.Alert)
                 {
-                    case AcsesState.Alert:
-                    case AcsesState.StopReleaseAlert:
-                        tcs.TriggerSoundWarning1();
-                        break;
-                    case AcsesState.Penalty:
-                    case AcsesState.StopPenalty:
-                        penaltyBrake.Set();
-                        break;
+                    tcs.TriggerSoundWarning1();
+                }
+                else if (value == AcsesState.Penalty)
+                {
+                    penaltyBrake.Set();
+                    tcs.TriggerSoundWarning1();
+                }
+                else if (value == AcsesState.PositiveStop)
+                {
+                    penaltyBrake.Set();
                 }
             }
-            else if (state == AcsesState.Alert || state == AcsesState.StopReleaseAlert)
+            else if (state == AcsesState.Alert)
             {
-                switch (value)
+                if (value == AcsesState.Off || value == AcsesState.Revealed)
                 {
-                    case AcsesState.Off:
-                    case AcsesState.AlertAcknowledged:
-                    case AcsesState.Recovered:
-                    case AcsesState.StopRelease:
-                    case AcsesState.StopReleaseAlertAcknowledged:
-                        tcs.TriggerSoundWarning2();
-                        break;
-                    case AcsesState.Penalty:
-                    case AcsesState.StopPenalty:
-                        penaltyBrake.Set();
-                        tcs.TriggerSoundWarning2();
-                        break;
+                    tcs.TriggerSoundWarning2();
+                }
+                else if (value == AcsesState.Penalty || value == AcsesState.PositiveStop)
+                {
+                    penaltyBrake.Set();
                 }
             }
-            else if (state == AcsesState.Penalty || state == AcsesState.StopPenalty)
+            else if (state == AcsesState.Penalty)
             {
-                switch (value)
+                if (value == AcsesState.Off || value == AcsesState.Revealed)
                 {
-                    case AcsesState.Off:
-                    case AcsesState.AlertAcknowledged:
-                    case AcsesState.Recovered:
-                    case AcsesState.StopRelease:
-                    case AcsesState.StopReleaseAlertAcknowledged:
-                        penaltyBrake.Release();
-                        break;
-                    case AcsesState.Alert:
-                    case AcsesState.StopReleaseAlert:
-                        penaltyBrake.Release();
-                        tcs.TriggerSoundWarning1();
-                        break;
+                    penaltyBrake.Release();
+                    tcs.TriggerSoundWarning2();
+                }
+                else if (value == AcsesState.Alert)
+                {
+                    penaltyBrake.Release();
+                }
+                else if (value == AcsesState.PositiveStop)
+                {
+                    tcs.TriggerSoundWarning2();
+                }
+            }
+            else if (state == AcsesState.PositiveStop)
+            {
+                if (value == AcsesState.Off || value == AcsesState.Revealed)
+                {
+                    penaltyBrake.Release();
+                }
+                else if (value == AcsesState.Alert)
+                {
+                    penaltyBrake.Release();
+                    tcs.TriggerSoundWarning1();
+                }
+                else if (value == AcsesState.Penalty)
+                {
+                    tcs.TriggerSoundWarning1();
                 }
             }
 
@@ -769,6 +773,14 @@ internal class Acses : ISubsystem
             }
         }
     }
+
+    private enum StopState
+    {
+        NotApplicable,
+        PositiveStop,
+        StopRelease
+    }
+    private StopState stop = StopState.NotApplicable;
 
     public float SpeedLimitMpS { get { return CurrentLimitMpS; } }
     public bool Enabled = true;
@@ -783,25 +795,16 @@ internal class Acses : ISubsystem
     {
         if (evt == TCSEvent.AlerterPressed)
         {
-            if (State == AcsesState.Alert)
+            if (State == AcsesState.Penalty && tcs.SpeedMpS() <= offendingLimitMpS)
             {
-                State = AcsesState.AlertAcknowledged;
-                Confirm("acknowledge");
+                State = AcsesState.Revealed;
+                Confirm("release");
             }
-            else if (State == AcsesState.Penalty && tcs.SpeedMpS() <= offendingLimitMpS)
+            else if (State == AcsesState.PositiveStop && tcs.IsStopped())
             {
-                State = AcsesState.Recovered;
-                Confirm("reset");
-            }
-            else if (State == AcsesState.StopPenalty && tcs.IsStopped())
-            {
-                State = AcsesState.StopRelease;
+                stop = StopState.StopRelease;
+                State = AcsesState.Off;
                 Confirm("stop release");
-            }
-            else if (State == AcsesState.StopReleaseAlert)
-            {
-                State = AcsesState.StopReleaseAlertAcknowledged;
-                Confirm("acknowledge");
             }
         }
     }
@@ -810,6 +813,7 @@ internal class Acses : ISubsystem
     {
         if (!Enabled || !tcs.IsTrainControlEnabled())
         {
+            stop = StopState.NotApplicable;
             State = AcsesState.Off;
             CurrentLimitMpS = 0f;
             return;
@@ -817,27 +821,10 @@ internal class Acses : ISubsystem
 
         float speedMpS = tcs.SpeedMpS();
         float speedLimitMpS = tcs.SafeCurrentPostSpeedLimitMpS();
-        bool speedLimitValid = speedLimitMpS != TrainControlSystemExtensions.NullSpeedLimit;
-
-        switch (State)
-        {
-            case AcsesState.Off:
-                CurrentLimitMpS = speedLimitMpS;
-                break;
-            case AcsesState.StopPenalty:
-                CurrentLimitMpS = 0f;
-                break;
-            case AcsesState.StopRelease:
-            case AcsesState.StopReleaseAlert:
-            case AcsesState.StopReleaseAlertAcknowledged:
-                CurrentLimitMpS = PositiveStopReleaseSpeedMpS;
-                break;
-            default:
-                CurrentLimitMpS = offendingLimitMpS;
-                break;
-        }
+        const float slope = 0f;
 
         bool positiveStop;
+        float enforcedLimitMps;
         switch (tcs.SafeNextSignalAspect(0))
         {
             case Aspect.Permission:
@@ -849,16 +836,43 @@ internal class Acses : ISubsystem
                 positiveStop = false;
                 break;
         }
+        if (positiveStop && tcs.SafeNextSignalDistanceM(0) < tcs.DistanceCurve(speedMpS, 0f, slope, 0f, -PenaltyCurveMpSS) + PositiveStopDistanceM && tcs.IsInitialized())
+        {
+            if (stop == StopState.NotApplicable)
+            {
+                stop = StopState.PositiveStop;
+                enforcedLimitMps = 0f;
+            }
+            else if (stop == StopState.PositiveStop)
+            {
+                enforcedLimitMps = 0f;
+            }
+            else
+            {
+                enforcedLimitMps = PositiveStopReleaseSpeedMpS;
+            }
+        }
+        else
+        {
+            stop = StopState.NotApplicable;
+            enforcedLimitMps = speedLimitMpS;
+        }
+        CurrentLimitMpS = State == AcsesState.Off ? enforcedLimitMps : offendingLimitMpS;
+
+        if (enforcedLimitMps == 0f)
+        {
+            PositiveStop();
+            return;
+        }
 
         const int lookahead = 3;
-        const float slope = 0f;
         var posts = new List<SpeedPost>(GetUpcomingSpeedPosts(lookahead));
         Func<SpeedPost, float, bool> inSpeedPostBrakeCurve = (SpeedPost post, float delayS) =>
         {
             return speedMpS > tcs.DelayedSpeedCurve(post.DistanceM, post.LimitMpS, slope, delayS, -PenaltyCurveMpSS);
         };
 
-        // Upcoming speed limit penalty curve.
+        // Penalty braking curves.
         foreach (SpeedPost post in posts)
         {
             if (inSpeedPostBrakeCurve(post, 0f))
@@ -867,34 +881,15 @@ internal class Acses : ISubsystem
                 return;
             }
         }
-
-        // Current speed limit penalty curve.
-        if (speedMpS > speedLimitMpS + SpeedLimitPenaltyMpS && speedLimitValid)
+        if (speedMpS > enforcedLimitMps + SpeedLimitPenaltyMpS)
         {
-            Penalty(speedLimitMpS);
+            Penalty(enforcedLimitMps);
             return;
         }
 
-        // Positive stop penalty curves.
-        if (State == AcsesState.StopRelease || State == AcsesState.StopReleaseAlert || State == AcsesState.StopReleaseAlertAcknowledged)
+        if (State == AcsesState.Off || State == AcsesState.Revealed)
         {
-            if (speedMpS > PositiveStopReleaseSpeedMpS + SpeedLimitPenaltyMpS)
-            {
-                StopPenalty();
-                return;
-            }
-        }
-        else if (tcs.IsInitialized() && positiveStop && State != AcsesState.StopPenalty)
-        {
-            if (tcs.SafeNextSignalDistanceM(0) < tcs.DistanceCurve(speedMpS, 0f, slope, 0f, -PenaltyCurveMpSS) + PositiveStopDistanceM)
-            {
-                StopPenalty();
-                return;
-            }
-        }
-
-        if (State == AcsesState.Off)
-        {
+            // Alert braking curves.
             foreach (SpeedPost post in posts)
             {
                 if (inSpeedPostBrakeCurve(post, TimeToPenaltyS))
@@ -903,37 +898,20 @@ internal class Acses : ISubsystem
                     return;
                 }
             }
-            if (speedMpS > speedLimitMpS + SpeedLimitAlertMpS && speedLimitValid)
+            if (speedMpS > enforcedLimitMps + SpeedLimitAlertMpS)
             {
-                Alert(speedLimitMpS);
+                Alert(enforcedLimitMps);
                 return;
             }
         }
-        else if (State == AcsesState.AlertAcknowledged || State == AcsesState.Recovered)
+        if (State == AcsesState.Alert)
         {
-            if (speedMpS < speedLimitMpS + SpeedLimitAlertMpS && speedLimitMpS <= offendingLimitMpS && speedLimitValid)
-                State = AcsesState.Off;
+            if (tcs.SpeedMpS() <= offendingLimitMpS)
+                State = AcsesState.Revealed;
         }
-        else if (State == AcsesState.StopPenalty)
+        else if (State == AcsesState.Revealed)
         {
-            if (!positiveStop)
-                State = AcsesState.Off;
-        }
-        else if (State == AcsesState.StopRelease)
-        {
-            if (speedMpS > PositiveStopReleaseSpeedMpS + SpeedLimitAlertMpS)
-            {
-                StopReleaseAlert();
-                return;
-            }
-            else if (!positiveStop)
-            {
-                State = AcsesState.Off;
-            }
-        }
-        else if (State == AcsesState.StopReleaseAlertAcknowledged)
-        {
-            if (!positiveStop)
+            if (speedLimitMpS <= offendingLimitMpS)
                 State = AcsesState.Off;
         }
     }
@@ -962,28 +940,26 @@ internal class Acses : ISubsystem
 
     private void Alert(float offendingLimitMpS)
     {
+        if (State != AcsesState.Alert)
+            Confirm("reduce speed");
         this.offendingLimitMpS = offendingLimitMpS;
         State = AcsesState.Alert;
-        Confirm("reduce speed");
-    }
-
-    private void StopReleaseAlert()
-    {
-        State = AcsesState.StopReleaseAlert;
-        Confirm("reduce speed");
     }
 
     private void Penalty(float offendingLimitMpS)
     {
+        if (State != AcsesState.Penalty)
+            Confirm("penalty");
         this.offendingLimitMpS = offendingLimitMpS;
         State = AcsesState.Penalty;
-        Confirm("penalty");
     }
 
-    private void StopPenalty()
+    private void PositiveStop()
     {
-        State = AcsesState.StopPenalty;
-        Confirm("stop");
+        if (State != AcsesState.PositiveStop)
+            Confirm("positive stop");
+        offendingLimitMpS = 0f;
+        State = AcsesState.PositiveStop;
     }
 
     private void Confirm(string message)
