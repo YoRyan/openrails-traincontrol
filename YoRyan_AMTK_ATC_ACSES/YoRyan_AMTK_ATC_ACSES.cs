@@ -211,11 +211,8 @@ internal class Atc : ISubsystem
     public const float SpeedLimitMarginMpS = 1.34f; // 3 mph
     public const float MinStopZoneLengthM = 457f; // 1500 ft
     // According to the Train Sim World: Northeast Corridor New York manual, these rates should be:
-    //public const float SuppressingAccelMpSS = -0.5f;
-    //public const float SuppressionAccelMpSS = -1.5f;
-    // But these seem unachievable in Open Rails.
-    public const float SuppressingAccelMpSS = -0.25f;
-    public const float SuppressionAccelMpSS = -0.5f;
+    public const float SuppressingAccelMpSS = -0.5f;
+    public const float SuppressionAccelMpSS = -1.5f;
 
     private readonly TrainControlSystem tcs;
     private readonly Timer timer;
