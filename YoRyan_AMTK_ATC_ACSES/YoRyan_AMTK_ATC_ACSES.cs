@@ -1,5 +1,5 @@
 ﻿/*
- * Amtrak Automatic Train Control/
+ * Northeast Corridor Automatic Train Control/
  * Advanced Civil Speed Enforcement System for Open Rails
  *
  * MIT License
