@@ -37,7 +37,6 @@ namespace ORTS.Scripting.Script
     {
         private PenaltyBrake penaltyBrake;
         private OverspeedDisplay overspeed;
-        private AlertSound alertSound;
         private Alerter alerter;
         private Atc atc;
         private Acses acses;
@@ -49,15 +48,14 @@ namespace ORTS.Scripting.Script
         {
             penaltyBrake = new PenaltyBrake(this);
             overspeed = new OverspeedDisplay(this);
-            alertSound = new AlertSound(this);
             alerter = new Alerter(
                 this,
                 GetFloatParameter("Alerter", "CountdownTimeS", 60f),
                 GetFloatParameter("Alerter", "AcknowledgeTimeS", 10f),
                 GetBoolParameter("Alerter", "DoControlsReset", true),
                 penaltyBrake.Set, penaltyBrake.Release);
-            atc = new Atc(this, penaltyBrake, overspeed, alertSound);
-            acses = new Acses(this, penaltyBrake, alertSound)
+            atc = new Atc(this, penaltyBrake, overspeed);
+            acses = new Acses(this, penaltyBrake)
             {
                 Enabled = GetBoolParameter("ACSES", "Enable", true)
             };
@@ -225,8 +223,6 @@ internal class Atc : ISubsystem
     private readonly CodeChangeZone changeZone;
     private readonly PenaltyBrake penaltyBrake;
     private readonly OverspeedDisplay overspeed;
-    private readonly AlertSound alert;
-    private readonly Sound upgradeSound;
     private readonly ISubsystem[] subsystems;
     private Aspect blockAspect = InitAspect;
     private float blockLengthM = TrainControlSystemExtensions.NullSignalDistance;
@@ -257,13 +253,13 @@ internal class Atc : ISubsystem
                     case ATCState.Countdown:
                         timer.Setup(CountdownS);
                         timer.Start();
-                        alert.Set();
+                        tcs.TriggerSoundAlert1();
                         break;
                     case ATCState.OverspeedCountdown:
                         timer.Setup(CountdownS);
                         timer.Start();
                         overspeed.Set();
-                        alert.Set();
+                        tcs.TriggerSoundAlert1();
                         break;
                     case ATCState.Overspeed:
                     case ATCState.OverspeedSlowing:
@@ -282,24 +278,24 @@ internal class Atc : ISubsystem
                 {
                     case ATCState.Off:
                     case ATCState.OverspeedSuppress:
-                        alert.Release();
+                        tcs.TriggerSoundAlert2();
                         break;
                     case ATCState.OverspeedCountdown:
                         overspeed.Set();
                         break;
                     case ATCState.Overspeed:
                         overspeed.Set();
-                        alert.Release();
+                        tcs.TriggerSoundAlert2();
                         break;
                     case ATCState.OverspeedSlowing:
                         timer.Setup(CountdownS);
                         timer.Start();
                         overspeed.Set();
-                        alert.Release();
+                        tcs.TriggerSoundAlert2();
                         break;
                     case ATCState.Stop:
                         penaltyBrake.Set();
-                        alert.Release();
+                        tcs.TriggerSoundAlert2();
                         break;
                 }
             }
@@ -309,26 +305,26 @@ internal class Atc : ISubsystem
                 {
                     case ATCState.Off:
                         overspeed.Release();
-                        alert.Release();
+                        tcs.TriggerSoundAlert2();
                         break;
                     case ATCState.Countdown:
                         overspeed.Release();
                         break;
                     case ATCState.Overspeed:
-                        alert.Release();
+                        tcs.TriggerSoundAlert2();
                         break;
                     case ATCState.OverspeedSlowing:
                         timer.Setup(CountdownS);
                         timer.Start();
-                        alert.Release();
+                        tcs.TriggerSoundAlert2();
                         break;
                     case ATCState.OverspeedSuppress:
                         overspeed.Release();
-                        alert.Release();
+                        tcs.TriggerSoundAlert2();
                         break;
                     case ATCState.Stop:
                         penaltyBrake.Set();
-                        alert.Release();
+                        tcs.TriggerSoundAlert2();
                         overspeed.Release();
                         break;
                 }
@@ -345,12 +341,12 @@ internal class Atc : ISubsystem
                         timer.Setup(CountdownS);
                         timer.Start();
                         overspeed.Release();
-                        alert.Set();
+                        tcs.TriggerSoundAlert1();
                         break;
                     case ATCState.OverspeedCountdown:
                         timer.Setup(CountdownS);
                         timer.Start();
-                        alert.Set();
+                        tcs.TriggerSoundAlert1();
                         break;
                     case ATCState.OverspeedSlowing:
                         timer.Setup(CountdownS);
@@ -373,12 +369,12 @@ internal class Atc : ISubsystem
                         timer.Setup(CountdownS);
                         timer.Start();
                         overspeed.Release();
-                        alert.Set();
+                        tcs.TriggerSoundAlert1();
                         break;
                     case ATCState.OverspeedCountdown:
                         timer.Setup(CountdownS);
                         timer.Start();
-                        alert.Set();
+                        tcs.TriggerSoundAlert1();
                         break;
                     case ATCState.Overspeed:
                         timer.Setup(CountdownS);
@@ -401,7 +397,7 @@ internal class Atc : ISubsystem
                     case ATCState.OverspeedCountdown:
                         timer.Setup(CountdownS);
                         timer.Start();
-                        alert.Set();
+                        tcs.TriggerSoundAlert1();
                         break;
                     case ATCState.Overspeed:
                     case ATCState.OverspeedSlowing:
@@ -424,14 +420,14 @@ internal class Atc : ISubsystem
                         timer.Setup(CountdownS);
                         timer.Start();
                         penaltyBrake.Release();
-                        alert.Set();
+                        tcs.TriggerSoundAlert1();
                         break;
                     case ATCState.OverspeedCountdown:
                         timer.Setup(CountdownS);
                         timer.Start();
                         penaltyBrake.Release();
                         overspeed.Set();
-                        alert.Set();
+                        tcs.TriggerSoundAlert1();
                         break;
                     case ATCState.Overspeed:
                     case ATCState.OverspeedSlowing:
@@ -472,7 +468,7 @@ internal class Atc : ISubsystem
             }
             else if (value > displayCode)
             {
-                upgradeSound.Play();
+                tcs.TriggerSoundInfo1();
                 Confirm("upgrade");
             }
 
@@ -483,7 +479,7 @@ internal class Atc : ISubsystem
     public Aspect CabAspect { get { return PulseCodeMapping.ToCabDisplay(DisplayCode); } }
     public float SpeedLimitMpS { get { return PulseCodeMapping.ToSpeedMpS(DisplayCode); } }
 
-    public Atc(TrainControlSystem parent, PenaltyBrake brake, OverspeedDisplay overspeed, AlertSound alert)
+    public Atc(TrainControlSystem parent, PenaltyBrake brake, OverspeedDisplay overspeed)
     {
         tcs = parent;
         timer = new Timer(tcs);
@@ -492,9 +488,7 @@ internal class Atc : ISubsystem
         changeZone = new CodeChangeZone(tcs, blockTracker);
         penaltyBrake = brake;
         this.overspeed = overspeed;
-        this.alert = alert;
-        upgradeSound = new Sound(tcs, tcs.TriggerSoundInfo1, tcs.TriggerSoundInfo2, UpgradeSoundS);
-        subsystems = new ISubsystem[] { blockTracker, upgradeSound };
+        subsystems = new ISubsystem[] { blockTracker };
     }
 
     private void HandleNewSignalBlock(object _, SignalBlockEventArgs e)
@@ -675,8 +669,31 @@ internal class Acses : ISubsystem
     private readonly TrainControlSystem tcs;
     private readonly Timer timer;
     private readonly PenaltyBrake penaltyBrake;
-    private readonly AlertSound alert;
     private float offendingLimitMpS = 0f;
+
+    private float currentLimitMpS = 0f;
+    private float CurrentLimitMpS
+    {
+        get
+        {
+            return currentLimitMpS;
+        }
+        set
+        {
+            if (value > currentLimitMpS && currentLimitMpS != 0f)
+            {
+                tcs.TriggerSoundInfo2();
+                Confirm("upgrade");
+            }
+            else if (value < currentLimitMpS && State == AcsesState.Off)
+            {
+                tcs.TriggerSoundPenalty1();
+                Confirm("downgrade");
+            }
+
+            currentLimitMpS = value;
+        }
+    }
 
     private enum AcsesState
     {
@@ -708,7 +725,7 @@ internal class Acses : ISubsystem
                     case AcsesState.StopReleaseAlert:
                         timer.Setup(CountdownS);
                         timer.Start();
-                        alert.Set();
+                        tcs.TriggerSoundWarning1();
                         break;
                     case AcsesState.Penalty:
                     case AcsesState.StopPenalty:
@@ -725,12 +742,12 @@ internal class Acses : ISubsystem
                     case AcsesState.Recovered:
                     case AcsesState.StopRelease:
                     case AcsesState.StopReleaseAlertAcknowledged:
-                        alert.Release();
+                        tcs.TriggerSoundWarning2();
                         break;
                     case AcsesState.Penalty:
                     case AcsesState.StopPenalty:
-                        alert.Release();
                         penaltyBrake.Set();
+                        tcs.TriggerSoundWarning2();
                         break;
                 }
             }
@@ -750,7 +767,7 @@ internal class Acses : ISubsystem
                         timer.Setup(CountdownS);
                         timer.Start();
                         penaltyBrake.Release();
-                        alert.Set();
+                        tcs.TriggerSoundWarning1();
                         break;
                 }
             }
@@ -770,7 +787,7 @@ internal class Acses : ISubsystem
             switch (State)
             {
                 case AcsesState.Off:
-                    return tcs.CurrentPostSpeedLimitMpS();
+                    return CurrentLimitMpS;
                 case AcsesState.StopPenalty:
                     return 0f;
                 case AcsesState.StopRelease:
@@ -784,12 +801,11 @@ internal class Acses : ISubsystem
     }
     public bool Enabled = true;
 
-    public Acses(TrainControlSystem parent, PenaltyBrake brake, AlertSound alert)
+    public Acses(TrainControlSystem parent, PenaltyBrake brake)
     {
         tcs = parent;
         timer = new Timer(tcs);
         penaltyBrake = brake;
-        this.alert = alert;
     }
 
     public void HandleEvent(TCSEvent evt, string message)
@@ -827,9 +843,11 @@ internal class Acses : ISubsystem
             return;
         }
 
-        float speedMpS = tcs.SpeedMpS();
         float speedLimitMpS = tcs.SafeCurrentPostSpeedLimitMpS();
         bool speedLimitValid = speedLimitMpS != TrainControlSystemExtensions.NullSpeedLimit;
+        if (speedLimitValid)
+            CurrentLimitMpS = speedLimitMpS;
+
         bool positiveStop;
         switch (tcs.SafeNextSignalAspect(0))
         {
@@ -845,6 +863,7 @@ internal class Acses : ISubsystem
 
         const int lookahead = 3;
         const float slope = 0f;
+        float speedMpS = tcs.SpeedMpS();
         var posts = new List<SpeedPost>(GetUpcomingSpeedPosts(lookahead));
         Func<SpeedPost, float, bool> inSpeedPostBrakeCurve = (SpeedPost post, float delayS) =>
         {
@@ -1462,26 +1481,6 @@ internal class PenaltyBrake : SharedLatch
     }
 }
 
-internal class AlertSound : SharedLatch
-{
-    private readonly TrainControlSystem tcs;
-
-    public AlertSound(TrainControlSystem parent)
-    {
-        tcs = parent;
-    }
-
-    protected override void DoSet()
-    {
-        tcs.TriggerSoundAlert1();
-    }
-
-    protected override void DoRelease()
-    {
-        tcs.TriggerSoundAlert2();
-    }
-}
-
 internal class OverspeedDisplay : SharedLatch
 {
     private readonly TrainControlSystem tcs;
@@ -1499,42 +1498,5 @@ internal class OverspeedDisplay : SharedLatch
     protected override void DoRelease()
     {
         tcs.SetOverspeedWarningDisplay(false);
-    }
-}
-
-internal class Sound : ISubsystem
-{
-    private readonly Timer timer;
-    private readonly float durationS;
-    private readonly Action start;
-    private readonly Action stop;
-
-    public Sound(TrainControlSystem tcs, Action startPlaying, Action stopPlaying, float durationS)
-    {
-        timer = new Timer(tcs);
-        start = startPlaying;
-        stop = stopPlaying;
-        this.durationS = durationS;
-    }
-
-    public void HandleEvent(TCSEvent evt, string message) { }
-
-    public void Update()
-    {
-        if (timer.Triggered)
-        {
-            timer.Stop();
-            stop();
-        }
-    }
-
-    public void Play()
-    {
-        if (!timer.Started)
-        {
-            timer.Setup(durationS);
-            timer.Start();
-            start();
-        }
     }
 }
