@@ -381,12 +381,17 @@ internal class Atc : ISubsystem
                 switch (value)
                 {
                     case ATCState.Countdown:
+                        timer.Setup(CountdownS);
+                        timer.Start();
+                        tcs.TriggerSoundAlert1();
+                        break;
                     case ATCState.OverspeedCountdown:
                     case ATCState.Overspeed:
                     case ATCState.OverspeedSlowing:
                         timer.Setup(CountdownS);
                         timer.Start();
                         tcs.TriggerSoundAlert1();
+                        overspeed.Set();
                         break;
                     case ATCState.Penalty:
                         penaltyBrake.Set();
