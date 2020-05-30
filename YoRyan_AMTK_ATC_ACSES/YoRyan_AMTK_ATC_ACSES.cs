@@ -649,6 +649,8 @@ internal class Acses : ISubsystem
 
     private readonly TrainControlSystem tcs;
     private readonly PenaltyBrake penaltyBrake;
+    private readonly SpeedPostTracker postTracker;
+    private readonly ISubsystem[] subsystems;
 
     private float offendingLimitMpS = 0f;
     private float currentLimitMpS = 0f;
@@ -775,10 +777,15 @@ internal class Acses : ISubsystem
     {
         tcs = parent;
         penaltyBrake = brake;
+        postTracker = new SpeedPostTracker(tcs);
+        subsystems = new ISubsystem[] { postTracker };
     }
 
     public void HandleEvent(TCSEvent evt, string message)
     {
+        foreach (ISubsystem sub in subsystems)
+            sub.HandleEvent(evt, message);
+
         if (evt == TCSEvent.AlerterPressed)
         {
             if (State == AcsesState.Penalty && tcs.SpeedMpS() <= offendingLimitMpS)
@@ -797,6 +804,9 @@ internal class Acses : ISubsystem
 
     public void Update()
     {
+        foreach (ISubsystem sub in subsystems)
+            sub.Update();
+
         if (!Enabled || !tcs.IsTrainControlEnabled())
         {
             stop = StopState.NotApplicable;
@@ -806,7 +816,7 @@ internal class Acses : ISubsystem
         }
 
         float speedMpS = tcs.SpeedMpS();
-        float speedLimitMpS = tcs.SafeCurrentPostSpeedLimitMpS();
+        float speedLimitMpS = postTracker.CurrentLimitMpS;
         const float slope = 0f;
 
         bool positiveStop;
@@ -1197,7 +1207,7 @@ internal class BlockTracker : ISubsystem
         tcs = parent;
     }
 
-    public void HandleEvent(TCSEvent evt, string message) {}
+    public void HandleEvent(TCSEvent evt, string message) { }
 
     public void Update()
     {
@@ -1378,6 +1388,52 @@ internal static class PulseCodeMapping
     }
 }
 
+/* Tracks the current speed limit irrespective of train length. */
+internal class SpeedPostTracker : ISubsystem
+{
+    private readonly TrainControlSystem tcs;
+
+    public float CurrentLimitMpS { private set; get; }
+
+    private enum SpeedPosition
+    {
+        Far,
+        Near
+    }
+    private SpeedPosition position = SpeedPosition.Far;
+    private SpeedPosition Position
+    {
+        get
+        {
+            return position;
+        }
+        set
+        {
+            if (position == SpeedPosition.Far && value == SpeedPosition.Near)
+                CurrentLimitMpS = tcs.SafeNextPostSpeedLimitMpS(0);
+
+            position = value;
+        }
+    }
+
+    public SpeedPostTracker(TrainControlSystem parent)
+    {
+        tcs = parent;
+        CurrentLimitMpS = TrainControlSystemExtensions.NullSpeedLimit;
+    }
+
+    public void HandleEvent(TCSEvent evt, string message) { }
+
+    public void Update()
+    {
+        if (CurrentLimitMpS == TrainControlSystemExtensions.NullSpeedLimit)
+            CurrentLimitMpS = tcs.SafeCurrentPostSpeedLimitMpS();
+
+        float distanceM = tcs.SafeNextPostDistanceM(0);
+        Position = distanceM != TrainControlSystemExtensions.NullPostDistance && distanceM < 3f ? SpeedPosition.Near : SpeedPosition.Far;
+    }
+}
+
 internal abstract class SharedLatch
 {
     private uint users = 0;
@@ -1419,7 +1475,7 @@ internal class PenaltyBrake : SharedLatch, ISubsystem
         tcs.SetPenaltyApplicationDisplay(false);
     }
 
-    public void HandleEvent(TCSEvent evt, string message) {}
+    public void HandleEvent(TCSEvent evt, string message) { }
 
     public void Update()
     {
