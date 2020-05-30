@@ -59,7 +59,7 @@ namespace ORTS.Scripting.Script
             {
                 Enabled = GetBoolParameter("ACSES", "Enable", true)
             };
-            subsystems = new ISubsystem[] { alerter, atc, acses };
+            subsystems = new ISubsystem[] { penaltyBrake, alerter, atc, acses };
 
             combineSpeedDisplays = !GetBoolParameter("ACSES", "UseSPEEDLIMIT", false);
 
@@ -1412,7 +1412,7 @@ internal abstract class SharedLatch
     protected abstract void DoRelease();
 }
 
-internal class PenaltyBrake : SharedLatch
+internal class PenaltyBrake : SharedLatch, ISubsystem
 {
     private readonly TrainControlSystem tcs;
 
@@ -1431,6 +1431,14 @@ internal class PenaltyBrake : SharedLatch
     {
         tcs.SetFullBrake(false);
         tcs.SetPenaltyApplicationDisplay(false);
+    }
+
+    public void HandleEvent(TCSEvent evt, string message) {}
+
+    public void Update()
+    {
+        if (!tcs.DoesBrakeCutPower())
+            tcs.SetThrottleController(0f);
     }
 }
 
