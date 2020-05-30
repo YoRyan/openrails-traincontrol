@@ -231,7 +231,7 @@ internal class Atc : ISubsystem
         Overspeed,          // Start slowing the train
         OverspeedSlowing,   // Reached -0.5 m/s^2
         OverspeedSuppress,  // Reached -1.5 m/s^2
-        Stop                // Penalty
+        Penalty             // Penalty
     }
     private ATCState state = ATCState.Off;
     private ATCState State
@@ -264,7 +264,7 @@ internal class Atc : ISubsystem
                         overspeed.Set();
                         tcs.TriggerSoundAlert1();
                         break;
-                    case ATCState.Stop:
+                    case ATCState.Penalty:
                         penaltyBrake.Set();
                         tcs.TriggerSoundAlert1();
                         break;
@@ -287,7 +287,7 @@ internal class Atc : ISubsystem
                         timer.Start();
                         overspeed.Set();
                         break;
-                    case ATCState.Stop:
+                    case ATCState.Penalty:
                         penaltyBrake.Set();
                         break;
                 }
@@ -311,7 +311,7 @@ internal class Atc : ISubsystem
                         overspeed.Release();
                         tcs.TriggerSoundAlert2();
                         break;
-                    case ATCState.Stop:
+                    case ATCState.Penalty:
                         penaltyBrake.Set();
                         overspeed.Release();
                         break;
@@ -339,7 +339,7 @@ internal class Atc : ISubsystem
                         timer.Setup(CountdownS);
                         timer.Start();
                         break;
-                    case ATCState.Stop:
+                    case ATCState.Penalty:
                         penaltyBrake.Set();
                         overspeed.Release();
                         break;
@@ -370,7 +370,7 @@ internal class Atc : ISubsystem
                         overspeed.Release();
                         tcs.TriggerSoundAlert2();
                         break;
-                    case ATCState.Stop:
+                    case ATCState.Penalty:
                         penaltyBrake.Set();
                         overspeed.Release();
                         break;
@@ -388,13 +388,13 @@ internal class Atc : ISubsystem
                         timer.Start();
                         tcs.TriggerSoundAlert1();
                         break;
-                    case ATCState.Stop:
+                    case ATCState.Penalty:
                         penaltyBrake.Set();
                         tcs.TriggerSoundAlert1();
                         break;
                 }
             }
-            else if (state == ATCState.Stop)
+            else if (state == ATCState.Penalty)
             {
                 switch (value)
                 {
@@ -500,10 +500,10 @@ internal class Atc : ISubsystem
                 State = ATCState.Overspeed;
                 Confirm("acknowledge");
             }
-            else if (State == ATCState.Stop && tcs.IsStopped())
+            else if (State == ATCState.Penalty && tcs.SpeedMpS() < PulseCodeMapping.ToSpeedMpS(DisplayCode))
             {
                 State = ATCState.Off;
-                Confirm("reset");
+                Confirm("release");
             }
         }
     }
@@ -573,7 +573,7 @@ internal class Atc : ISubsystem
         }
         else if ((State == ATCState.Countdown || State == ATCState.OverspeedCountdown) && timer.Triggered)
         {
-            State = ATCState.Stop;
+            State = ATCState.Penalty;
             Confirm("penalty");
         }
         else if (State == ATCState.Overspeed)
@@ -593,7 +593,7 @@ internal class Atc : ISubsystem
             }
             else if (timer.Triggered)
             {
-                State = ATCState.Stop;
+                State = ATCState.Penalty;
                 Confirm("penalty");
             }
         }
@@ -614,7 +614,7 @@ internal class Atc : ISubsystem
             }
             else if (timer.Triggered)
             {
-                State = ATCState.Stop;
+                State = ATCState.Penalty;
                 Confirm("penalty");
             }
         }
