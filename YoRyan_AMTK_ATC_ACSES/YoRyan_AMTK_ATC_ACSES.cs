@@ -96,7 +96,7 @@ namespace ORTS.Scripting.Script
             speedLimDisplayControl = parseDisplayType(GetStringParameter("Displays", "SPEEDLIM_DISPLAY", "atc,acses"));
             confirmControl = parseDisplayType(GetStringParameter("Displays", "Confirm", "ttp"));
 
-            Console.WriteLine("Amtrak safety systems initialized!");
+            Console.WriteLine("NEC safety systems initialized!");
         }
 
         public override void HandleEvent(TCSEvent evt, string message)
