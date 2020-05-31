@@ -152,7 +152,7 @@ namespace ORTS.Scripting.Script
             renderDisplay(SetNextSpeedLimitMpS, speedLimDisplayControl);
             if (confirmControl == DisplayType.TimeToPenalty)
                 if (timeToPenaltyS >= 0)
-                    Message(ConfirmLevel.None, string.Format("ACSES: time to penalty - {0}s", timeToPenaltyS));
+                    Message(ConfirmLevel.None, string.Format("ACSES: Time To Penalty - {0}s", timeToPenaltyS));
         }
     }
 }
