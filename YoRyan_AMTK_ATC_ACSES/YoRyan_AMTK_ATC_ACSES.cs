@@ -514,6 +514,7 @@ internal class Atc : ISubsystem
         {
             if (value < displayCode)
             {
+                displayCode = value;
                 State = Overspeed ? ATCState.OverspeedCountdown : ATCState.Countdown;
                 Confirm("downgrade");
             }
