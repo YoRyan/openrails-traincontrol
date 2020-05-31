@@ -42,7 +42,18 @@ namespace ORTS.Scripting.Script
         private Acses acses;
         private ISubsystem[] subsystems;
 
-        private bool combineSpeedDisplays;
+        private enum DisplayType
+        {
+            Atc,
+            Atc_Acses,
+            Acses,
+            Acses_TimeToPenalty,
+            TimeToPenalty,
+            None
+        }
+        private DisplayType speedLimitControl;
+        private DisplayType speedLimDisplayControl;
+        private DisplayType confirmControl;
 
         public override void Initialize()
         {
@@ -61,7 +72,29 @@ namespace ORTS.Scripting.Script
             };
             subsystems = new ISubsystem[] { penaltyBrake, alerter, atc, acses };
 
-            combineSpeedDisplays = !GetBoolParameter("ACSES", "UseSPEEDLIMIT", false);
+            Func<string, DisplayType> parseDisplayType = (s) =>
+            {
+                switch (s.ToLower())
+                {
+                    case "atc":
+                        return DisplayType.Atc;
+                    case "atc,acses":
+                    case "acses,atc":
+                        return DisplayType.Atc_Acses;
+                    case "acses":
+                        return DisplayType.Acses;
+                    case "acses,ttp":
+                    case "ttp,acses":
+                        return DisplayType.Acses_TimeToPenalty;
+                    case "ttp":
+                        return DisplayType.TimeToPenalty;
+                    default:
+                        return DisplayType.None;
+                }
+            };
+            speedLimitControl = parseDisplayType(GetStringParameter("Displays", "SPEEDLIMIT", ""));
+            speedLimDisplayControl = parseDisplayType(GetStringParameter("Displays", "SPEEDLIM_DISPLAY", "atc,acses"));
+            confirmControl = parseDisplayType(GetStringParameter("Displays", "Confirm", "ttp"));
 
             Console.WriteLine("Amtrak safety systems initialized!");
         }
@@ -83,16 +116,43 @@ namespace ORTS.Scripting.Script
                 sub.Update();
 
             SetNextSignalAspect(atc.CabAspect);
-            if (combineSpeedDisplays && acses.Enabled)
+
+            int timeToPenaltyS = (int)Math.Round(acses.TimeToPenaltyS);
+            Action<Action<float>, DisplayType> renderDisplay = (Action<float> set, DisplayType dt) =>
             {
-                SetNextSpeedLimitMpS(Math.Min(atc.SpeedLimitMpS, acses.SpeedLimitMpS));
-                SetCurrentSpeedLimitMpS(0f);
-            }
-            else
-            {
-                SetNextSpeedLimitMpS(atc.SpeedLimitMpS);
-                SetCurrentSpeedLimitMpS(acses.SpeedLimitMpS);
-            }
+                switch (dt)
+                {
+                    case DisplayType.Atc:
+                        set(atc.SpeedLimitMpS);
+                        break;
+                    case DisplayType.Atc_Acses:
+                        if (acses.Enabled)
+                            set(Math.Min(atc.SpeedLimitMpS, acses.SpeedLimitMpS));
+                        else
+                            set(atc.SpeedLimitMpS);
+                        break;
+                    case DisplayType.Acses:
+                        if (acses.Enabled)
+                            set(acses.SpeedLimitMpS);
+                        else
+                            set(0f);
+                        break;
+                    case DisplayType.Acses_TimeToPenalty:
+                        if (acses.Enabled)
+                            set(acses.TimeToPenaltyS < 0 ? acses.SpeedLimitMpS : timeToPenaltyS);
+                        else
+                            set(0f);
+                        break;
+                    default:
+                        set(0f);
+                        break;
+                }
+            };
+            renderDisplay(SetCurrentSpeedLimitMpS, speedLimitControl);
+            renderDisplay(SetNextSpeedLimitMpS, speedLimDisplayControl);
+            if (confirmControl == DisplayType.TimeToPenalty)
+                if (timeToPenaltyS >= 0)
+                    Message(ConfirmLevel.None, string.Format("ACSES: time to penalty - {0}s", timeToPenaltyS));
         }
     }
 }
@@ -195,6 +255,12 @@ internal static class TrainControlSystemExtensions
     public static float PredictedDistanceM(this TrainControlSystem tcs, float timeS)
     {
         return tcs.SpeedMpS() * timeS + 0.5f * tcs.Locomotive().AccelerationMpSS * timeS * timeS;
+    }
+
+    public static float PredictedTravelTimeS(this TrainControlSystem tcs, float distanceM)
+    {
+        float speedMpS = tcs.SpeedMpS();
+        return speedMpS == 0 ? -1f : distanceM / speedMpS;
     }
 
     public static bool IsInitialized(this TrainControlSystem tcs)
@@ -644,7 +710,7 @@ internal class Atc : ISubsystem
 internal class Acses : ISubsystem
 {
     public const float PenaltyCurveMpSS = -0.89408f; // -2 mph/s
-    public const float TimeToPenaltyS = 8f;
+    public const float AlertCurveTimeS = 8f;
     public const float SpeedLimitAlertMpS = 0.44704f; // 1 mph
     public const float SpeedLimitPenaltyMpS = 1.34112f; // 3 mph
     public const float PositiveStopDistanceM = 152.4f; // 500 ft
@@ -654,16 +720,17 @@ internal class Acses : ISubsystem
     private readonly PenaltyBrake penaltyBrake;
     private readonly SpeedPostTracker postTracker;
     private readonly ISubsystem[] subsystems;
-
     private float offendingLimitMpS = 0f;
     private float currentLimitMpS = 0f;
-    private float CurrentLimitMpS
+
+    public bool Enabled = true;
+    public float SpeedLimitMpS
     {
         get
         {
             return currentLimitMpS;
         }
-        set
+        private set
         {
             if (value > currentLimitMpS && currentLimitMpS != 0f)
             {
@@ -679,6 +746,7 @@ internal class Acses : ISubsystem
             currentLimitMpS = value;
         }
     }
+    public float TimeToPenaltyS { get; private set; }
 
     private enum AcsesState
     {
@@ -773,9 +841,6 @@ internal class Acses : ISubsystem
     }
     private StopState stop = StopState.NotApplicable;
 
-    public float SpeedLimitMpS { get { return CurrentLimitMpS; } }
-    public bool Enabled = true;
-
     public Acses(TrainControlSystem parent, PenaltyBrake brake)
     {
         tcs = parent;
@@ -814,7 +879,7 @@ internal class Acses : ISubsystem
         {
             stop = StopState.NotApplicable;
             State = AcsesState.Off;
-            CurrentLimitMpS = 0f;
+            SpeedLimitMpS = 0f;
             return;
         }
 
@@ -856,7 +921,7 @@ internal class Acses : ISubsystem
             stop = StopState.NotApplicable;
             enforcedLimitMps = speedLimitMpS;
         }
-        CurrentLimitMpS = State == AcsesState.Off ? enforcedLimitMps : offendingLimitMpS;
+        SpeedLimitMpS = State == AcsesState.Off ? enforcedLimitMps : offendingLimitMpS;
 
         if (enforcedLimitMps == 0f)
         {
@@ -886,12 +951,13 @@ internal class Acses : ISubsystem
             return;
         }
 
+        TimeToPenaltyS = -1f;
         if (State == AcsesState.Off || State == AcsesState.Revealed)
         {
             // Alert braking curves.
             foreach (SpeedPost post in posts)
             {
-                if (inSpeedPostBrakeCurve(post, TimeToPenaltyS))
+                if (inSpeedPostBrakeCurve(post, AlertCurveTimeS))
                 {
                     Alert(post.LimitMpS);
                     return;
@@ -906,7 +972,21 @@ internal class Acses : ISubsystem
         if (State == AcsesState.Alert)
         {
             if (tcs.SpeedMpS() <= offendingLimitMpS)
+            {
                 State = AcsesState.Revealed;
+            }
+            else
+            {
+                foreach (SpeedPost post in posts)
+                {
+                    if (post.LimitMpS == offendingLimitMpS)
+                    {
+                        float penaltyDistanceM = Math.Max(post.DistanceM - tcs.DistanceCurve(speedMpS, offendingLimitMpS, slope, 0f, -PenaltyCurveMpSS), 0f);
+                        TimeToPenaltyS = tcs.PredictedTravelTimeS(penaltyDistanceM);
+                        break;
+                    }
+                }
+            }
         }
         else if (State == AcsesState.Revealed)
         {
