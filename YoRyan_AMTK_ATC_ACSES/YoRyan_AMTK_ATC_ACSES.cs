@@ -1540,6 +1540,7 @@ internal abstract class SharedLatch
 internal class PenaltyBrake : SharedLatch, ISubsystem
 {
     private readonly TrainControlSystem tcs;
+    private bool cutPower = false;
 
     public PenaltyBrake(TrainControlSystem parent)
     {
@@ -1550,19 +1551,21 @@ internal class PenaltyBrake : SharedLatch, ISubsystem
     {
         tcs.SetFullBrake(true);
         tcs.SetPenaltyApplicationDisplay(true);
+        cutPower = true;
     }
 
     protected override void DoRelease()
     {
         tcs.SetFullBrake(false);
         tcs.SetPenaltyApplicationDisplay(false);
+        cutPower = false;
     }
 
     public void HandleEvent(TCSEvent evt, string message) { }
 
     public void Update()
     {
-        if (!tcs.DoesBrakeCutPower())
+        if (cutPower && !tcs.DoesBrakeCutPower())
             tcs.SetThrottleController(0f);
     }
 }
