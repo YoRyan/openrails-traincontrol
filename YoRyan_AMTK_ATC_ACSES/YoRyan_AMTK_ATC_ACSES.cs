@@ -881,6 +881,7 @@ internal class Acses : ISubsystem
             stop = StopState.NotApplicable;
             State = AcsesState.Off;
             SpeedLimitMpS = postTracker.CurrentLimitMpS;
+            TimeToPenaltyS = -1f;
             return;
         }
 
