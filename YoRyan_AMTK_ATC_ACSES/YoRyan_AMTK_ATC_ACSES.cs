@@ -880,7 +880,7 @@ internal class Acses : ISubsystem
         {
             stop = StopState.NotApplicable;
             State = AcsesState.Off;
-            SpeedLimitMpS = 0f;
+            SpeedLimitMpS = postTracker.CurrentLimitMpS;
             return;
         }
 
