@@ -572,7 +572,7 @@ internal class Atc : ISubsystem
                 State = ATCState.Overspeed;
                 Confirm("acknowledge");
             }
-            else if (State == ATCState.Penalty && !Overspeed)
+            else if (State == ATCState.Penalty && tcs.IsStopped())
             {
                 State = ATCState.Off;
                 Confirm("release");
