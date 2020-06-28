@@ -267,6 +267,11 @@ internal static class TrainControlSystemExtensions
     {
         return tcs.GameTime() >= 1f;
     }
+
+    public static float GetSlope(this TrainControlSystem tcs)
+    {
+        return 0f; // TODO
+    }
 }
 
 internal class Atc : ISubsystem
@@ -887,7 +892,7 @@ internal class Acses : ISubsystem
 
         float speedMpS = tcs.SpeedMpS();
         float speedLimitMpS = postTracker.CurrentLimitMpS;
-        const float slope = 0f;
+        float slope = tcs.GetSlope();
 
         bool positiveStop;
         float enforcedLimitMps;
@@ -933,15 +938,11 @@ internal class Acses : ISubsystem
 
         const int lookahead = 3;
         var posts = new List<SpeedPost>(GetUpcomingSpeedPosts(lookahead));
-        Func<SpeedPost, float, bool> inSpeedPostBrakeCurve = (SpeedPost post, float delayS) =>
-        {
-            return speedMpS > tcs.DelayedSpeedCurve(post.DistanceM, post.LimitMpS, slope, delayS, -PenaltyCurveMpSS);
-        };
 
         // Penalty braking curves.
         foreach (SpeedPost post in posts)
         {
-            if (inSpeedPostBrakeCurve(post, 0f))
+            if (InPenaltyBrakingCurve(post.DistanceM, post.LimitMpS))
             {
                 Penalty(post.LimitMpS);
                 return;
@@ -959,7 +960,7 @@ internal class Acses : ISubsystem
             // Alert braking curves.
             foreach (SpeedPost post in posts)
             {
-                if (inSpeedPostBrakeCurve(post, AlertCurveTimeS))
+                if (InAlertBrakingCurve(post.DistanceM, post.LimitMpS))
                 {
                     Alert(post.LimitMpS);
                     return;
@@ -995,6 +996,16 @@ internal class Acses : ISubsystem
             if (speedLimitMpS <= offendingLimitMpS)
                 State = AcsesState.Off;
         }
+    }
+
+    private bool InAlertBrakingCurve(float distanceM, float targetSpeedMpS)
+    {
+        return tcs.SpeedMpS() > tcs.DelayedSpeedCurve(distanceM, targetSpeedMpS + SpeedLimitAlertMpS, tcs.GetSlope(), AlertCurveTimeS, -PenaltyCurveMpSS);
+    }
+
+    private bool InPenaltyBrakingCurve(float distanceM, float targetSpeedMpS)
+    {
+        return tcs.SpeedMpS() > tcs.DelayedSpeedCurve(distanceM, targetSpeedMpS + SpeedLimitPenaltyMpS, tcs.GetSlope(), 0f, -PenaltyCurveMpSS);
     }
 
     private struct SpeedPost
