@@ -4,9 +4,10 @@ TCS scripts can simulate all sorts of railway safety systems, making the train
 driving experience more realistic, engaging, and enjoyable.
 
 Use the "download ZIP" function to download the latest versions of the scripts.
-There are no releases. **All scripts currently require Carlo Santucci's
+There are no releases. **All scripts currently require the testing version of
+Open Rails, or Carlo Santucci's
 [NewYear MG](http://www.elvastower.com/forums/index.php?/topic/32640-or-newyear-mg/)
-fork of Open Rails, which can be obtained at
+fork, which can be obtained at
 [his website](http://interazioni-educative.it/Downloads/index.php).**
 
 TCS scripts must be installed on each individual locomotive. To install a
